@@ -1,0 +1,12 @@
+<mujoco model="cadence_two_joint">
+  <option timestep="0.005" gravity="0 0 0"/>
+  <worldbody><body name="base"><body name="link_a">
+    <joint name="joint_a" type="hinge" axis="0 0 1" range="-90 90"/>
+    <geom type="capsule" fromto="0 0 0 0.3 0 0" size="0.025" mass="1"/>
+    <body name="link_b" pos="0.3 0 0">
+      <joint name="joint_b" type="hinge" axis="0 0 1" range="-90 90"/>
+      <geom type="capsule" fromto="0 0 0 0.3 0 0" size="0.025" mass="1"/>
+    </body>
+  </body></body></worldbody>
+  <actuator><motor name="joint_a_motor" joint="joint_a" ctrlrange="-10 10"/><motor name="joint_b_motor" joint="joint_b" ctrlrange="-10 10"/></actuator>
+</mujoco>

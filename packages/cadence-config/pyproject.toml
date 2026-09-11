@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cadence-config"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "cadence-config: independent Cadence ecosystem component"
+dependencies = ["PyYAML>=6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cadence_config*"]
+
+[tool.setuptools.package-data]
+"*" = ["**/*.yaml", "**/*.json", "**/*.xml", "**/*.STL", "**/*.stl", "**/*.onnx", "**/*.npz", "**/*.hex", "**/*.md", "**/*.lock", "**/LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

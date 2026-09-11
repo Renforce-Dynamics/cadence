@@ -1,0 +1,21 @@
+schema_version: 1
+robot:
+  joints: [joint_a, joint_b]
+  position_min: [-1.5, -1.5]
+  position_max: [1.5, 1.5]
+backend:
+  kind: mock
+  model: pkg://cadence/data/two_joint.xml
+  physics_timestep_s: 0.005
+runtime:
+  control_hz: 50
+  deadline_ms: 20
+  duration_s: 1
+  start_state: fixed_position
+catalog:
+  reset_state_id: 0
+  safety_fallback_state_id: 1
+  states:
+    0: {key: passive, factory: 'cadence.plugins:BasicState', config: {kind: passive}}
+    1: {key: damping, factory: 'cadence.plugins:BasicState', config: {kind: damping}}
+    2: {key: fixed_position, factory: 'cadence.plugins:BasicState', config: {kind: fixed_position, target: [0.15, -0.15], duration_s: 0.5}}

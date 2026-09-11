@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cadence"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "cadence: independent Cadence ecosystem component"
+dependencies = ["cadence-api>=0.1,<0.2", "cadence-config>=0.1,<0.2", "numpy>=1.24"]
+
+[project.scripts]
+cadence = "cadence.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["cadence*"]
+
+[tool.setuptools.package-data]
+"*" = ["**/*.yaml", "**/*.json", "**/*.xml", "**/*.STL", "**/*.stl", "**/*.onnx", "**/*.npz", "**/*.hex", "**/*.md", "**/*.lock", "**/LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.optional-dependencies]
+sim = ["mujoco>=3,<4"]
+inference = ["onnxruntime>=1.16,<1.24"]
+a3 = ["agi3sdk>=0.1,<0.2"]

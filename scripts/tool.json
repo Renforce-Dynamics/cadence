@@ -1,0 +1,13 @@
+{
+  "module": "cadence",
+  "doctor": [
+    "-m",
+    "cadence",
+    "doctor"
+  ],
+  "run": [
+    "-m",
+    "cadence",
+    "run"
+  ]
+}

@@ -1,0 +1,4 @@
+extends: pkg://cadence/data/demo.yaml
+compose:
+  backend: mujoco.yaml
+  experiment: quick.yaml
