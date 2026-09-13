@@ -1,6 +1,6 @@
 # 配置约定
 
-`cadence-config` 是无机器人依赖的小包，PlanetJ、PlanetRecord、planet-rally 与应用入口共同使用。配置加载不扫描相邻仓库。
+`cadence-config` 是无机器人依赖的小包，planetJoystick、planetRecord、planet-rally 与应用入口共同使用。配置加载不扫描相邻仓库。
 
 ```yaml
 extends: pkg://cadence/data/demo.yaml
