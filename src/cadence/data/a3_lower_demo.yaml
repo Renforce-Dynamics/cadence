@@ -1,0 +1,122 @@
+# Runs the actual ONNX actor against an in-memory backend; no hardware connection.
+schema_version: 1
+robot:
+  joints:
+  - left_hip_pitch_joint
+  - left_hip_roll_joint
+  - left_hip_yaw_joint
+  - left_knee_joint
+  - left_ankle_pitch_joint
+  - left_ankle_roll_joint
+  - right_hip_pitch_joint
+  - right_hip_roll_joint
+  - right_hip_yaw_joint
+  - right_knee_joint
+  - right_ankle_pitch_joint
+  - right_ankle_roll_joint
+  - waist_yaw_joint
+  - waist_roll_joint
+  - waist_pitch_joint
+  - left_shoulder_pitch_joint
+  - left_shoulder_roll_joint
+  - left_shoulder_yaw_joint
+  - left_elbow_joint
+  - left_wrist_roll_joint
+  - left_wrist_pitch_joint
+  - left_wrist_yaw_joint
+  - right_shoulder_pitch_joint
+  - right_shoulder_roll_joint
+  - right_shoulder_yaw_joint
+  - right_elbow_joint
+  - right_wrist_roll_joint
+  - right_wrist_pitch_joint
+  - right_wrist_yaw_joint
+  position_min:
+  - -2.51327
+  - -0.523599
+  - -2.72271
+  - -0.122173
+  - -0.907571
+  - -0.349066
+  - -2.51327
+  - -1.6057
+  - -2.72271
+  - -0.122173
+  - -0.907571
+  - -0.349066
+  - -2.61799
+  - -0.349066
+  - -0.488692
+  - -2.87979
+  - -0.0872665
+  - -2.79253
+  - -0.959931
+  - -2.79253
+  - -1.62316
+  - -1.62316
+  - -2.87979
+  - -2.61799
+  - -2.79253
+  - -0.959931
+  - -2.79253
+  - -1.62316
+  - -1.62316
+  position_max:
+  - 2.93215
+  - 1.6057
+  - 2.72271
+  - 2.49582
+  - 0.523599
+  - 0.349066
+  - 2.93215
+  - 0.523599
+  - 2.72271
+  - 2.49582
+  - 0.523599
+  - 0.349066
+  - 2.61799
+  - 0.349066
+  - 0.418879
+  - 2.87979
+  - 2.61799
+  - 2.79253
+  - 1.74533
+  - 2.79253
+  - 1.62316
+  - 1.62316
+  - 2.87979
+  - 0.0872665
+  - 2.79253
+  - 1.74533
+  - 2.79253
+  - 1.62316
+  - 1.62316
+backend:
+  kind: mock
+runtime:
+  control_hz: 50
+  deadline_ms: 20
+  duration_s: 1
+  start_state: loco
+  velocity_command:
+  - 0.0
+  - 0.0
+  - 0.0
+catalog:
+  reset_state_id: 0
+  safety_fallback_state_id: 1
+  states:
+    0:
+      key: passive
+      factory: cadence.plugins:BasicState
+      config:
+        kind: passive
+    1:
+      key: damping
+      factory: cadence.plugins:BasicState
+      config:
+        kind: damping
+    3:
+      key: loco
+      factory: cadence.motion:LowerLocoState
+      config: pkg://cadence/data/motion/a3_lower.yaml

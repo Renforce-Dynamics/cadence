@@ -1,0 +1,2 @@
+# Default posture is used at entry; subsequent targets are held without a timeout.
+extends: a3_lower.yaml
