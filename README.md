@@ -45,6 +45,12 @@ Applications register through the `cadence.applications` entry point. [cadence-r
 
 Command submission follows `prepare` → `guard_pending` → backend write → `commit`; rejected writes call `reject`. See [execution tests](tests/test_execution.py).
 
+## Lower-body locomotion and arm motion
+
+Lower-body locomotion can be composed with custom arm trajectories, IK targets or other arm controllers. Applications assign disjoint joint groups and submit one combined command through Cadence. For A3, the standard split is 12 leg joints plus 3 waist joints for the lower policy, and 14 arm joints for the upper controller; unclaimed joints retain an explicit fallback.
+
+The current standalone A3 `LowerLocoState` holds the arms at their default pose. Existing IK serve composition combines a lower policy with custom arm motion. A3 policy adapters and skill states currently live in cadence-rally; Cadence provides the execution and composition mechanisms. See [motion composition, current entry points and execution feedback](docs/motion-composition.md).
+
 ## Development
 
 ```bash
