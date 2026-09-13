@@ -55,3 +55,23 @@ def test_artifact_checksum_and_package_resource(tmp_path):
     assert resolve_resource("pkg://cadence/data/demo.yaml").is_file()
     with pytest.raises(ConfigError):
         resolve_resource("pkg://cadence/../private")
+
+
+def test_precedence_is_fixed_across_parents_layers_and_cli(tmp_path):
+    layers = ["base", "second", "robot", "backend", "task", "site", "experiment"]
+    for index, name in enumerate(layers):
+        (tmp_path / f"{name}.yaml").write_text(
+            f"runtime: {{hz: {index}, owner: {name}}}\n{name}: true\n"
+        )
+    entry = tmp_path / "entry.yaml"
+    entry.write_text(
+        "extends: [base.yaml, second.yaml]\n"
+        "compose: {experiment: experiment.yaml, site: site.yaml, task: task.yaml, "
+        "backend: backend.yaml, robot: robot.yaml}\n"
+        "runtime: {hz: 50}\n"
+    )
+    cfg = load_config(entry, overrides=["runtime.hz=100"])
+    assert cfg.data["runtime"] == {"hz": 100, "owner": "experiment"}
+    assert all(cfg.data[name] for name in layers)
+    assert cfg.origins["runtime.owner"] == str(tmp_path / "experiment.yaml")
+    assert cfg.origins["runtime.hz"] == str(entry)

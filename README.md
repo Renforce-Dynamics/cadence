@@ -1,23 +1,61 @@
-# Cadence
+# cadence
 
-机器人执行节奏：按确定的控制周期组合输入、执行技能、校验命令，并在 backend 接受命令后提交技能进度。机器人关节数量来自 backend 与配置。
+**Composable robot execution and simulation.**
+
+Cadence runs control cycles, composes skill outputs and commits skill progress after a backend accepts a command. The same application can use mock, MuJoCo or A3 backends.
+
+- Hierarchical state machines with activation IDs and parent cancellation.
+- Independent safety supervision and explicit joint ownership.
+- Layered configuration, provenance and reproducible snapshots.
+
+Robot dimensions and task behavior are supplied by applications.
+
+## Quick start
+
+Requires Linux, Python 3.10+ and `uv`.
 
 ```bash
-./scripts/setup.sh --wheelhouse /path/to/wheels --extra sim
+git clone --recurse-submodules git@github.com:Renforce-Dynamics/cadence.git
+cd cadence
+./scripts/bootstrap.sh --extra sim
 ./scripts/run.sh -- --backend mock --duration-s 1
 ./scripts/run.sh -- --backend mujoco --duration-s 1
+./scripts/test.sh
+```
+
+## Packages and dependencies
+
+| Package | Responsibility |
+| --- | --- |
+| `cadence-api` | State, command and RobotIO contracts |
+| `cadence-config` | YAML composition, resources, provenance and snapshots |
+| `cadence` | Execution kernel, state machines, inference and backends |
+
+`external/agi3sdk` pins the optional A3 backend dependency. The default bootstrap installs only Cadence packages. Use `./scripts/bootstrap.sh --extra a3` to install the SDK and build its mock transport; enable AimRT separately for hardware. Third-party Python dependencies use package version constraints.
+
+## Configuration and applications
+
+```bash
+.venv/bin/cadence config resolve configs/demo.yaml --set runtime.duration_s=2 --output runs/config
+```
+
+Configuration precedence is ordered `extends`, then `compose` layers (`robot`, `backend`, `task`, `site`, `experiment`), then the current file and explicit overrides. Mappings merge recursively; lists replace. See the [configuration reference](docs/configuration.md).
+
+Applications register through the `cadence.applications` entry point. [cadence-rally](https://github.com/Renforce-Dynamics/cadence-rally) provides A3 rally skills and deployment profiles. Cadence has no dependency on its task code.
+
+Command submission follows `prepare` → `guard_pending` → backend write → `commit`; rejected writes call `reject`. See [execution tests](tests/test_execution.py).
+
+## Development
+
+```bash
+./scripts/submodules.sh init    # initialize or restore pinned dependencies
+./scripts/submodules.sh check
 ./scripts/test.sh
 ./scripts/build.sh
 ```
 
-- `cadence-api`：状态快照、关节命令、RobotIO 结构接口；不包含模型、任务或消息接收器。
-- `cadence-config`：独立配置分层、严格 YAML、资源解析、来源追踪和快照。
-- `cadence`：执行内核、状态注册、层次状态机、关节所有权合成、ONNX runner 和 backend。
+Submodules pin source commits; Python requirements describe package compatibility. Bootstrap installs only the explicit packages in `source-workspace.json`. `scripts/setup.sh --wheelhouse /path/to/wheels` is available for package-based installation. Upgrade dependencies by committing reviewed submodule revisions with the parent repository.
 
-应用通过 `cadence.applications` entry point 注册，例：`cadence run --profile cadence-rally/continuous`。通用包不 import A3、Planet 或应用技能。
+## Authorship and license
 
-一次真实提交使用 `prepare(input)` → `guard_pending()` → `backend.write_command(...)` → `commit(ticket)`；backend 拒绝则 `reject(ticket)`。`tick()` 是无外部 I/O 的已接受步，供测试和 shadow 计算使用。deadline 连续超限会锁存安全状态，急停优先于同周期 reset。
-
-`HierarchicalMachine` 提供父子取消、激活编号和转换表。并行技能使用 `compose_commands` 明确声明关节范围，重叠声明直接拒绝；未声明关节保留传入的 fallback 命令。安全监督独立于业务状态机，最终命令只经一个 backend 出口。
-
-参考 [配置文档](docs/configuration.md)、`configs/demo.yaml` 与 `tests/test_execution.py`。
+Developed and maintained by [Renforce Dynamics](https://github.com/Renforce-Dynamics). See [AUTHORS.md](AUTHORS.md). Project code is available under the [MIT License](LICENSE).

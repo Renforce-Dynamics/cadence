@@ -1,0 +1,15 @@
+{
+  "packages": [
+    "packages/cadence-api",
+    "packages/cadence-config",
+    "."
+  ],
+  "optional_packages": {
+    "a3": [
+      "external/agi3sdk"
+    ]
+  },
+  "optional_native_build": {
+    "a3": "external/agi3sdk/scripts/build-native.sh"
+  }
+}

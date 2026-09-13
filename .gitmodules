@@ -1,0 +1,3 @@
+[submodule "agi3sdk"]
+	path = external/agi3sdk
+	url = git@github.com:Renforce-Dynamics/agi3sdk.git

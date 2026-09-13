@@ -3,10 +3,14 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
+authors = [{name = "Renforce Dynamics"}]
+maintainers = [{name = "Renforce Dynamics"}]
+readme = "README.md"
+license = {file = "LICENSE"}
 name = "cadence"
 version = "0.1.0"
 requires-python = ">=3.10"
-description = "cadence: independent Cadence ecosystem component"
+description = "Composable robot execution and simulation"
 dependencies = ["cadence-api>=0.1,<0.2", "cadence-config>=0.1,<0.2", "numpy>=1.24"]
 
 [project.scripts]
@@ -26,3 +30,8 @@ testpaths = ["tests"]
 sim = ["mujoco>=3,<4"]
 inference = ["onnxruntime>=1.16,<1.24"]
 a3 = ["agi3sdk>=0.1,<0.2"]
+
+[project.urls]
+Repository = "https://github.com/Renforce-Dynamics/cadence"
+Issues = "https://github.com/Renforce-Dynamics/cadence/issues"
+Documentation = "https://github.com/Renforce-Dynamics/cadence#readme"
