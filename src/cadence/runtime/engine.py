@@ -89,7 +89,9 @@ class RuntimeKernel:
     """Generic dispatcher over preloaded, manifest-defined state plugins."""
 
     def __init__(
-        self, config: RuntimeConfig, initial_state: RobotState, now_s: float
+        self, config: RuntimeConfig, initial_state: RobotState, now_s: float,
+        *, initial_localization: LocalizationState | None = None,
+        preloaded_plugins=None,
     ) -> None:
         if config.deadline_s <= 0:
             raise ValueError("deadline_s must be positive")
@@ -110,7 +112,10 @@ class RuntimeKernel:
         services = config.services
         # Every enabled state and ONNX session is parsed, loaded and warmed by
         # construction before the frontend opens its command loop.
-        self.plugins = config.state_catalog.instantiate(services)
+        self.plugins = (config.state_catalog.instantiate(services) if preloaded_plugins is None
+                        else dict(preloaded_plugins))
+        if set(self.plugins) != set(config.state_catalog.definitions):
+            raise ValueError("preloaded states do not match the selected catalog")
         self.current_key = config.state_catalog.canonical_key(config.start_state)
         self.current = self.plugins[self.current_key]
         self.safety = SafetySupervisor(config.deadline_s)
@@ -119,11 +124,11 @@ class RuntimeKernel:
         self._transition_started_s: float | None = None
         self._transition_duration_s = 0.0
         self._transition_from_q_des = self._last_command_q_des.copy()
-        self._last_valid_root: LocalizationState | None = None
+        self._last_valid_root: LocalizationState | None = initial_localization
         self._root_loss_steps = 0
         self._root_loss_blocked_mode: str | None = None
         initial_frame = self.config.frame_factory(
-            float(now_s), initial_state, None, None, (0.0, 0.0, 0.0), None
+            float(now_s), initial_state, initial_localization, None, (0.0, 0.0, 0.0), None
         )
         self.current.on_enter(initial_frame, [])
 

@@ -1,0 +1,5 @@
+# Real command publication retains the A3_CONFIRM_ONBOARD=YES launch gate.
+extends: a3_readonly.yaml
+backend:
+  read_only: false
+  command_publish_enabled: true

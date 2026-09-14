@@ -119,6 +119,7 @@ def test_invalid_operator_descriptions_are_rejected(response):
 
 @pytest.mark.parametrize("changes", [
     {"mode": None}, {"safety_halted": 0}, {"events": "not an event list"},
+    {"execution": "published"}, {"execution": None}, {"execution": []},
 ])
 def test_operator_status_validates_runtime_field_types(changes):
     with server(lambda request: {**STATUS, **changes}) as (port, _):

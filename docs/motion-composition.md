@@ -18,7 +18,7 @@ Cadence 提供两个可跨任务复用的运动状态：下肢策略持续控制
 .venv/bin/cadence run --config pkg://cadence/data/a3_lower_demo.yaml --duration-s 1
 ```
 
-该示例运行真实 A3 ONNX 策略，使用内存 mock backend；它验证推理和命令执行链，不模拟接触动力学。运行摘要中的 `dimension` 为 29，`mode` 为 `loco`。MuJoCo 场景和硬件部署由使用该状态的应用提供。
+该示例运行真实 A3 ONNX 策略，使用内存 mock backend；它验证推理和命令执行链，不模拟接触动力学。运行摘要中的 `dimension` 为 29，`mode` 为 `loco`。Cadence 自带独立 A3 readonly、命令和 native SDK mock 部署配置，见 [部署指南](deployment.md)；MuJoCo 的机器人场景由部署配置选择。
 
 实时上肢示例在本地端口 `15100` 接收目标：
 
@@ -170,7 +170,7 @@ def publish_upper_position(state, activation, sequence, positions_rad):
 
 `publish()` 返回 `True` 或 UDP 回应 `accepted: true`，仅表示最新帧邮箱已接收。它不保证该帧一定执行：更晚帧可能覆盖它，状态也可能退出。`state.committed_upper_sequence` 在 backend 接受整条命令后才推进；`last_action` 根据实际接受的完整关节命令计算。backend 接受命令也不等于关节已经到达该角度，物理效果应读取机器人反馈。
 
-执行链是 `prepare` → `guard_pending` → backend write → `commit`。安全拒绝或写入失败时不推进上肢提交序号，A3 adapter 的观测历史也回滚。输入接收在独立线程运行，控制周期读取不可变快照，不等待网络到包。
+命令模式的执行链是 `prepare` → `guard_pending` → backend write → `commit`。安全拒绝或写入失败时不推进上肢提交序号，A3 adapter 的观测历史也回滚。readonly 部署进行 shadow 计算而不写命令，其状态进度不表示机器人执行。输入接收在独立线程运行，控制周期读取不可变快照，不等待网络到包。
 
 ## A3 模型和通用状态的边界
 

@@ -76,8 +76,13 @@ class JoystickCommandReceiver:
             raise ValueError("operator status requires a string mode and boolean safety_halted")
         if not isinstance(events, (tuple, list)) or not all(isinstance(event, str) for event in events):
             raise ValueError("operator status events must be strings")
+        execution = field("execution")
+        if execution is not None and execution not in ("backend", "shadow"):
+            raise ValueError("operator execution must be backend or shadow")
         self._status = {"schema": OPERATOR_SCHEMA, "type": "status", "mode": mode,
                         "safety_halted": halted, "events": list(events)}
+        if execution is not None:
+            self._status["execution"] = execution
 
     def _answer_query(self, raw, peer):
         try:

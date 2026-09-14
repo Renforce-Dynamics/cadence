@@ -13,13 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / "scripts/tool.json").read_text())
 
 
-def invoke(cmd):
-    subprocess.run([str(x) for x in cmd], cwd=ROOT, check=True)
+def invoke(cmd, *, cwd=ROOT):
+    subprocess.run([str(x) for x in cmd], cwd=cwd, check=True)
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("action", choices=["setup", "build", "test", "doctor", "run"])
+    # Run/deploy own their public help, including config and backend options.
+    p = argparse.ArgumentParser(description=__doc__, add_help=not (len(sys.argv) > 1 and sys.argv[1] in {"run", "deploy"}))
+    p.add_argument("action", choices=["setup", "build", "test", "doctor", "run", "deploy"])
     p.add_argument("--python", default=os.environ.get("CADENCE_PYTHON", sys.executable))
     p.add_argument(
         "--venv", default=os.environ.get("CADENCE_VENV", str(ROOT / ".venv"))
@@ -74,7 +75,8 @@ def main():
         if args.action == "test":
             invoke([python, "-m", "pytest", "tests", "-q"] + extra)
         else:
-            invoke([python] + CONFIG[args.action] + extra)
+            invoke([python] + CONFIG[args.action] + extra,
+                   cwd=None if args.action in {"run", "deploy"} else ROOT)
 
 
 if __name__ == "__main__":

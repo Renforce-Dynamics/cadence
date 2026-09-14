@@ -1,0 +1,27 @@
+# Real AimRT state, with no hardware command publishers.
+backend:
+  kind: a3
+  transport: aimrt
+  read_only: true
+  command_publish_enabled: false
+  startup_timeout_s: 5.0
+  state_timeout_ms: 50
+  command_timeout_ms: 100
+  safe_damping_kd: 3.0
+  neck_kp: 40.0
+  neck_kd: 2.0
+  aimrt:
+    config_path: ../aimrt/aimrt_iceoryx.yaml
+    maximum_sync_skew_ms: 20.0
+    state_topics:
+      waist: /body_drive/waist_joint_state
+      neck: /body_drive/neck_joint_state
+      arms: /body_drive/arm_joint_state
+      legs: /body_drive/leg_joint_state
+      pelvis_imu: /body_drive/pelvis_imu/data
+      torso_imu: /body_drive/torso_imu/data
+    command_topics:
+      waist: /body_drive/waist_joint_command
+      neck: /body_drive/neck_joint_command
+      arms: /body_drive/arm_joint_command
+      legs: /body_drive/leg_joint_command

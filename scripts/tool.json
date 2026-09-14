@@ -9,5 +9,10 @@
     "-m",
     "cadence",
     "run"
+  ],
+  "deploy": [
+    "-m",
+    "cadence",
+    "deploy"
   ]
 }

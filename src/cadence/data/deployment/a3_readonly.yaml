@@ -1,0 +1,3 @@
+extends:
+  - ../a3_operator_demo.yaml
+  - ../backends/a3_readonly.yaml

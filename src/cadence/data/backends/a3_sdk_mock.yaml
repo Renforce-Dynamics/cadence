@@ -1,0 +1,13 @@
+# Native SDK conformance fixture: stationary state and an in-memory command sink.
+# No AimRT transport or dynamics simulation is configured.
+backend:
+  kind: a3
+  transport: sdk_mock
+  read_only: false
+  command_publish_enabled: false
+  startup_timeout_s: 5.0
+  state_timeout_ms: 50
+  command_timeout_ms: 100
+  safe_damping_kd: 3.0
+  neck_kp: 40.0
+  neck_kd: 2.0

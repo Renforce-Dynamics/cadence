@@ -1,0 +1,11 @@
+# Opt-in external localization. Match this identity with the actual producer.
+# This layer enables ingress only; extend a deployment to supply robot/states.
+runtime:
+  localization:
+    host: 127.0.0.1
+    port: 15110
+    source: localization
+    frame_id: world
+    child_frame_id: policy_root
+    max_age_s: 0.25
+    max_datagrams_per_poll: 64

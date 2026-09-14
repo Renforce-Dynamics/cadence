@@ -14,7 +14,7 @@ runtime:
   duration_s: 5
 ```
 
-合并顺序：`extends` 的顺序 → robot → backend → task → site → experiment → 当前文件 → CLI overrides。字典递归合并，列表整体替换。重复 YAML key、循环继承、不存在的资源、未知 override 字段都会报错。领域字段由组件自身的 schema 检查；`cadence config validate` 检查组合结构，组件 `doctor` 检查实际可运行配置。
+合并顺序：`extends` 的顺序 → robot → backend → task → site → experiment → 当前文件 → CLI overrides。字典递归合并，列表整体替换。重复 YAML key、循环继承、不存在的资源、未知 override 字段都会报错。领域字段由组件自身的 schema 检查；`cadence config validate` 检查组合结构，`cadence deploy --check` 检查部署的状态、模型和后端配置而不开启 I/O。
 
 ```bash
 cadence config resolve configs/demo.yaml --set runtime.duration_s=2 --output runs/config
@@ -32,6 +32,35 @@ cadence config diff configs/demo.yaml other.yaml
 `cadence-rally` 兼容旧配置中明确的 `configs/`、`assets/`、`models/`、`contracts/` 前缀：它们相对于应用 bundle。新写的其他相对路径按声明来源解析。planet-rally 的旧配置也保留显式 bundle 引用，默认资源已随 wheel 分发。修改新应用的 bundle 通过 `CADENCE_RALLY_BUNDLE` 显式选择，不依赖运行目录。
 
 应用的 `artifacts.lock` 校验模型和机器人资产；`cadence-rally doctor` 和 profile 启动会校验清单。修改资产后显式执行 `cadence-rally lock` 更新。`--output` 保存配置、运行参数、版本和资产清单，运行参数覆盖记录在 `deployment.json`。
+
+Cadence 自己的 `cadence deploy` 与 `scripts/deploy.sh` 也提供独立部署及快照入口，默认输出到
+`runs/deploy-...`；可用 `--output` 指定目录、`--set dotted=value` 覆盖已有字段。
+模拟、A3 readonly 与命令部署都不要求引用 cadence-rally，见 [部署指南](deployment.md)。
+
+## 后端 overlay
+
+`pkg://cadence/data/backends/` 提供 `a3_readonly.yaml`、`a3_command.yaml` 和
+`a3_sdk_mock.yaml`。将后端层与通用状态配置组合，得到完整部署：
+
+```yaml
+extends:
+  - pkg://cadence/data/a3_operator_demo.yaml
+  - pkg://cadence/data/backends/a3_readonly.yaml
+runtime:
+  duration_s: 5
+```
+
+完整入口也已提供在 `pkg://cadence/data/deployment/` 下。`backend.kind: a3` 的
+`transport` 必须显式为 `aimrt` 或 `sdk_mock`。AimRT readonly 配置
+`read_only: true`、`command_publish_enabled: false`；真实发布配置相反。
+`sdk_mock` 可用 `read_only: false` 验证内存写确认，但 `command_publish_enabled` 必须为
+false，且不能携带 AimRT 配置。
+
+`backend.aimrt.config_path` 和 `backend.library_path` 由组合配置按声明来源解析。
+前者默认引用 Cadence 包内的通用 Iceoryx 配置；SDK 控制 topic 名、同步偏差、状态等待超时、
+命令 watchdog 与 neck 保持增益在 `backend` 下明确配置。
+`backend.startup_timeout_s` 是首帧等待时长；`state_timeout_ms` 是后续状态等待与 SDK
+已交付快照的新鲜度限制。A3 关节顺序必须与规范关节名一致，不能通过改动列表重排 SDK 输出。
 
 
 ## 配置与源码依赖
@@ -66,6 +95,29 @@ runtime:
 通用默认值来自 `pkg://cadence/data/operator.yaml`。轴是协议中的归一化输入，由执行部署映射成 `vx`、`vy`（m/s）和 yaw（rad/s），再进行变化率限制。`level` 持续提供按住的安全信号；`rising` 只提供上升沿。PLNJ 断流或 TTL 过期时不再提供状态请求，并向变化率限制器输入零速度。它不会改写上肢目标邮箱。
 
 `a3_operator_demo.yaml` 注册 `passive=0`、`damping=1`、`fixedpos=2`、`loco=3`，从 damping 启动。`a3_operator_stream_demo.yaml` 继承它，把 loco 工厂替换为实时上肢状态并启用独立目标端口。配套发送端是 `pkg://planetj/data/cadence.yaml`；先运行 `planetj --config pkg://planetj/data/cadence.yaml --check-remote` 验证 ID 和状态名。
+
+## 通用外部定位
+
+`runtime.localization` 独立于 operator 与上肢目标输入；省略或设为 `null` 时不创建接收端。
+其配置字段如下，source 与坐标系名称必须与生产者完全匹配：
+
+```yaml
+runtime:
+  localization:
+    host: 127.0.0.1
+    port: 15110
+    source: mocap
+    frame_id: world
+    child_frame_id: policy_root
+    max_age_s: 0.25
+    max_datagrams_per_poll: 64
+```
+
+协议为 `cadence.localization.v1`：位置 m、线速度 m/s、单位四元数 wxyz。接收端检查
+source、frame、session/sequence 顺序及 TTL，不做隐式坐标变换。可用年龄为
+`source_age_s + 接收后的单调时钟时间`，上限取发送端 TTL 和 `max_age_s` 的较小值；未测量
+的网络排队时间不包含在内。过期或显式无效的新样本撤回定位，状态级保持与回退由运行时
+契约决定。字段语义与轻量发送端示例见 [部署指南](deployment.md#外部定位)。
 
 ## 可复用运动状态配置
 

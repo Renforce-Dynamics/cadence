@@ -14,6 +14,8 @@ import math
 from numbers import Integral, Real
 import socket
 
+from .localization import LocalizationClient
+
 
 OPERATOR_SCHEMA = "cadence.operator.v1"
 JOINT_TARGET_SCHEMA = "cadence.joint-target.v1"
@@ -211,6 +213,8 @@ class OperatorClient(_UdpClient):
         events = response.get("events")
         if not isinstance(events, list) or any(not isinstance(event, str) for event in events):
             raise ValueError("status.events must be a list of strings")
+        if "execution" in response and response["execution"] not in ("backend", "shadow"):
+            raise ValueError("status.execution must be backend or shadow")
         return response
 
     def validate_bindings(self, bindings):

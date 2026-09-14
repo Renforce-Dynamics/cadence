@@ -1,0 +1,30 @@
+# Embedded AimRT runtime for agi3sdk. Vendor joint/sensor packages provide
+# message type support; body-drive topics use the Iceoryx channel backend.
+aimrt:
+  plugin:
+    plugins:
+      - name: iceoryx_plugin
+        path: /opt/agibot/bin/libaimrt_iceoryx_plugin.so
+        options:
+          shm_init_size: 2048
+  log:
+    core_lvl: WARN
+    backends:
+      - type: console
+  executor:
+    executors:
+      - name: aimrt_callback_pool
+        type: asio_thread
+        options:
+          thread_num: 2
+  channel:
+    backends:
+      - type: iceoryx
+        options:
+          listener_thread_name: agi3sdk_iceoryx
+    pub_topics_options:
+      - topic_name: "(.*)"
+        enable_backends: [iceoryx]
+    sub_topics_options:
+      - topic_name: "(.*)"
+        enable_backends: [iceoryx]

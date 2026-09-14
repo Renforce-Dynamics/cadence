@@ -1,0 +1,5 @@
+extends:
+  - ../a3_operator_demo.yaml
+  - ../backends/a3_sdk_mock.yaml
+runtime:
+  duration_s: 1.0
