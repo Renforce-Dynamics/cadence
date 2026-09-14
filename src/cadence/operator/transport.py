@@ -8,12 +8,14 @@ import json
 import socket
 import time
 
-from cadence_protocol.operator import decode_joystick_command, sequence_newer
+from planet_protocol.operator import decode_joystick_command, sequence_newer
+from planet_protocol.client import OPERATOR_SCHEMA as PLANET_OPERATOR_SCHEMA, _object, _nonfinite
 
 from .input import ReceivedJoystickCommand
 
 
 OPERATOR_SCHEMA = "cadence.operator.v1"
+OPERATOR_SCHEMAS = (PLANET_OPERATOR_SCHEMA, OPERATOR_SCHEMA)
 MAX_DATAGRAMS_PER_POLL = 64
 
 
@@ -85,10 +87,13 @@ class JoystickCommandReceiver:
             self._status["execution"] = execution
 
     def _answer_query(self, raw, peer):
+        schema = OPERATOR_SCHEMA
         try:
-            request = json.loads(raw)
-            if not isinstance(request, dict) or set(request) != {"schema", "type"} or request["schema"] != OPERATOR_SCHEMA:
-                raise ValueError(f"query requires schema={OPERATOR_SCHEMA} and type")
+            request = json.loads(raw, object_pairs_hook=_object, parse_constant=_nonfinite)
+            if isinstance(request, dict) and request.get("schema") in OPERATOR_SCHEMAS:
+                schema = request["schema"]
+            if not isinstance(request, dict) or set(request) != {"schema", "type"} or request["schema"] not in OPERATOR_SCHEMAS:
+                raise ValueError(f"query requires schema in {OPERATOR_SCHEMAS} and type")
             if request["type"] == "describe":
                 response = self._description
             elif request["type"] == "status":
@@ -97,8 +102,9 @@ class JoystickCommandReceiver:
                 raise ValueError("query type must be describe or status")
             if response is None:
                 raise ValueError("operator runtime is not ready")
+            response = {**response, "schema": schema}
         except (ValueError, TypeError, RecursionError) as error:
-            response = {"schema": OPERATOR_SCHEMA, "type": "error", "error": str(error)}
+            response = {"schema": schema, "type": "error", "error": str(error)}
         try:
             self._socket.sendto(json.dumps(response, allow_nan=False).encode(), peer)
         except (BlockingIOError, OSError):

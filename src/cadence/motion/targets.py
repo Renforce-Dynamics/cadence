@@ -16,6 +16,7 @@ import threading
 from typing import Sequence
 
 import numpy as np
+from planet_protocol.client import JOINT_TARGET_SCHEMA, _object, _nonfinite
 
 
 _MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
@@ -150,6 +151,7 @@ class LatestJointTarget:
 
 
 TARGET_SCHEMA = "cadence.joint-target.v1"
+TARGET_SCHEMAS = (JOINT_TARGET_SCHEMA, TARGET_SCHEMA)
 
 
 class JointTargetUdpReceiver:
@@ -223,16 +225,19 @@ class JointTargetUdpReceiver:
         self.stop()
 
     def _response(self, data: bytes) -> dict:
+        schema = TARGET_SCHEMA
         try:
-            request = json.loads(data)
-            if not isinstance(request, dict) or request.get("schema") != TARGET_SCHEMA:
-                raise ValueError(f"request schema must be {TARGET_SCHEMA}")
+            request = json.loads(data, object_pairs_hook=_object, parse_constant=_nonfinite)
+            if isinstance(request, dict) and request.get("schema") in TARGET_SCHEMAS:
+                schema = request["schema"]
+            if not isinstance(request, dict) or request.get("schema") not in TARGET_SCHEMAS:
+                raise ValueError(f"request schema must be in {TARGET_SCHEMAS}")
             kind = request.get("type")
             if kind == "status":
                 if set(request) != {"schema", "type"}:
                     raise ValueError("status request contains unknown fields")
                 return {
-                    "schema": TARGET_SCHEMA,
+                    "schema": schema,
                     "type": "status",
                     "activation": self.targets.activation,
                     "dimension": self.targets.dimension,
@@ -248,7 +253,7 @@ class JointTargetUdpReceiver:
             )
             accepted = self.targets.publish(frame)
             return {
-                "schema": TARGET_SCHEMA,
+                "schema": schema,
                 "type": "receipt",
                 "accepted": accepted,
                 "activation": frame.activation,
@@ -257,7 +262,7 @@ class JointTargetUdpReceiver:
             }
         except (ValueError, TypeError, OverflowError, RecursionError) as exc:
             return {
-                "schema": TARGET_SCHEMA,
+                "schema": schema,
                 "type": "receipt",
                 "accepted": False,
                 "reason": "invalid",

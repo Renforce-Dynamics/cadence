@@ -179,7 +179,7 @@ def _freeze(plan, output):
                 collect(item)
     collect(cfg)
     packages = {}
-    for name in ("cadence", "cadence-api", "cadence-config", "cadence-protocol", "agi3sdk", "onnxruntime", "mujoco"):
+    for name in ("cadence", "cadence-api", "cadence-config", "cadence-protocol", "planet-config", "planet-protocol", "agi3sdk", "onnxruntime", "mujoco"):
         try:
             packages[name] = version(name)
         except PackageNotFoundError:

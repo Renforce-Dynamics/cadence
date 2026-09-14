@@ -1,8 +1,12 @@
 # 独立部署
 
-Cadence 可以独立部署通用状态机，直接接收 PlanetJoystick、上肢关节目标和外部定位，
+Cadence 可以独立部署通用状态机，通过共享 Planet 协议接收 PlanetJoystick、上肢关节目标和外部定位，
 不需要安装或启动 cadence-rally。cadence-rally 在同一执行基础设施上注册发球、击球等
 任务状态，并提供任务协议适配和配置；它作为应用启动时，也不需要另开一个 Cadence 进程。
+
+配置和线协议由独立 planetConfig 仓库的 `planet-config`、`planet-protocol` 提供。
+Cadence 和 Planet 组件都依赖这层共享库；Planet 组件不依赖 Cadence 或 SDK，
+可以连接实现同一协议的其他执行端。
 
 ## 入口与配置
 
@@ -31,12 +35,12 @@ Cadence 可以独立部署通用状态机，直接接收 PlanetJoystick、上肢
 | `deployment/a3_command.yaml` | 真实 AimRT 状态与命令发布 |
 
 这些配置共用 `passive=0`、`damping=1`、`fixedpos=2`、`loco=3`，从 damping 启动。
-设备端采用 `pkg://planetj/data/cadence.yaml`。状态名和 ID 可通过 PlanetJoystick 的
+设备端采用 `pkg://planetj/data/operator.yaml`。状态名和 ID 可通过 PlanetJoystick 的
 `--check-remote` 与运行中的部署进行匹配检查，检查本身不请求状态切换。
 
 ```bash
-planetj --config pkg://planetj/data/cadence.yaml --check-remote
-planetj --config pkg://planetj/data/cadence.yaml
+planetj --config pkg://planetj/data/operator.yaml --check-remote
+planetj --config pkg://planetj/data/operator.yaml
 ```
 
 先请求 fixedpos（RB+A），再请求 loco（RB+X）；能否切换仍由状态机的进入条件决定。
@@ -126,7 +130,7 @@ runtime:
 换用 `backends/a3_command.yaml` 后使用相同的状态请求与上肢目标接口。实时上肢的默认姿态
 仅用于本次状态进入，之后持续执行最新的有效关节目标；输入断流不恢复默认姿态。离开状态
 或安全监督介入时仍按运行时规则执行。默认上肢 UDP 端口只接受 loopback，生产者可以是
-[PlanetJoystick 连续发送示例](https://github.com/Renforce-Dynamics/planetJoystick/tree/main/examples/cadence_upper_stream)。
+[PlanetJoystick 连续发送示例](https://github.com/Renforce-Dynamics/planetJoystick/tree/main/examples/upper_stream)。
 
 operator 和上肢目标是两个独立输入。PLNJ 过期后不再提供状态请求，并向速度变化率限制器
 提供零输入；这本身不等于所有状态自动急停。是否要求持续 operator 连接是状态声明的
@@ -149,11 +153,11 @@ runtime:
     max_datagrams_per_poll: 64
 ```
 
-发送端只需安装轻量 `cadence-protocol`。下面展示单帧接口；连续接入时由感知进程根据
+发送端只需安装 planetConfig 的轻量 `planet-protocol`。下面展示单帧接口；连续接入时由感知进程根据
 新样本重复调用 `send`，并填写采样时刻及发送时的样本年龄：
 
 ```python
-from cadence_protocol.localization import LocalizationClient
+from planet_protocol.localization import LocalizationClient
 
 with LocalizationClient("127.0.0.1", 15110, source="mocap") as client:
     client.send(
@@ -164,9 +168,13 @@ with LocalizationClient("127.0.0.1", 15110, source="mocap") as client:
     )
 ```
 
-协议名为 `cadence.localization.v1`。位置和线速度位于 `frame_id`，单位为 m 和 m/s；
+协议名为 `planet.localization.v1`。位置和线速度位于 `frame_id`，单位为 m 和 m/s；
 单位四元数按 wxyz 排列，表示从 `child_frame_id` 到 `frame_id` 的旋转。
 接收端要求 source 和两个 frame 名称完全匹配，不进行隐式坐标转换。
+
+Cadence 同时接收旧 `cadence.localization.v1`。operator 和上肢目标默认分别使用
+`planet.operator.v1`、`planet.joint-target.v1`，也兼容对应旧名称；回复沿用请求的 schema。
+旧 `cadence_protocol` 导入作为执行侧兼容层保留，新生产者直接使用 `planet_protocol`。
 
 `session_id` 是递增的生产者 epoch，同一 session 中 `sequence` 递增；乱序与旧 session
 不能覆盖最新样本。有效时间取发送端 `ttl_s` 和接收端 `max_age_s` 的较小值，年龄由发送端

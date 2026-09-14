@@ -11,7 +11,7 @@ name = "cadence"
 version = "0.1.0"
 requires-python = ">=3.10"
 description = "Composable robot execution and simulation"
-dependencies = ["cadence-protocol>=0.1,<0.2", "cadence-api>=0.1,<0.2", "cadence-config>=0.1,<0.2", "numpy>=1.24"]
+dependencies = ["planet-config>=0.1,<0.2", "planet-protocol>=0.1,<0.2", "cadence-protocol>=0.1,<0.2", "cadence-api>=0.1,<0.2", "cadence-config>=0.1,<0.2", "numpy>=1.24"]
 
 [project.scripts]
 cadence = "cadence.cli:main"

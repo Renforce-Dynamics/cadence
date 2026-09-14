@@ -1,29 +1,32 @@
 # Architecture and repository boundaries
 
-Cadence owns robot execution. PlanetJoystick supplies operator input to Cadence's
-public interface. Task applications extend Cadence with states, transitions and
-deployment configuration; they inherit the same operator interface.
+Cadence owns robot execution and implements receivers for the shared Planet
+protocols. planetConfig owns the independent configuration and wire libraries.
+PlanetJoystick supplies operator input to compatible receivers without importing
+Cadence or the SDK. Task applications extend Cadence with states, transitions and
+deployment configuration; they reuse its receiver implementations.
 
 ## Repository responsibilities
 
 | Repository | Owns | Reuses |
 | --- | --- | --- |
 | `agi3sdk` | A3 state synchronization, command submission and native transport | Robot middleware |
-| `cadence` | Runtime, safety, state lifecycle, command composition, generic motion, inference, simulation/A3 backends, deployment, configuration, operator and localization protocols | Optional A3 SDK |
-| `planetJoystick` | Physical device acquisition, configurable bindings, PLNJ publication and continuous upper-joint producers | Lightweight Cadence configuration and protocol packages |
-| `planetRecord` | Stream schemas, recording, asynchronous clients and replay | Lightweight Cadence configuration |
-| `planetRelay` | UDP forwarding, filters, counters and RTT tools | Lightweight Cadence configuration |
-| `planet-rally` | Rally perception, prediction, planner and task profiles for operator, recorder, relay and debugging | Planet components and lightweight Cadence packages |
+| `planetConfig` | Configuration composition, resources, snapshots, operator/target/localization wire contracts and lightweight clients | Python standard library and YAML parser |
+| `cadence` | Runtime, safety, state lifecycle, command composition, generic motion, inference, simulation/A3 backends, deployment and protocol receivers | planetConfig and optional A3 SDK |
+| `planetJoystick` | Physical device acquisition, configurable bindings, PLNJ publication and continuous upper-joint producers | planetConfig |
+| `planetRecord` | Stream schemas, recording, asynchronous clients and replay | planetConfig configuration library |
+| `planetRelay` | UDP forwarding, filters, counters and RTT tools | planetConfig configuration library |
+| `planet-rally` | Rally perception, prediction, planner and task profiles for operator, recorder, relay and debugging | Planet components and planetConfig |
 | `cadence-rally` | Rally execution states, behavior orchestration, task models, task protocol adaptation, task/site deployments and process composition | Cadence and planet-rally |
 
 Generic lower locomotion and fixed/streamed upper-joint control belong to Cadence.
 Serve, strike and rally behavior belong to cadence-rally. PlanetJoystick never
 imports a task state class or writes robot PD commands.
 
-Generic robot localization and the A3 backend lifecycle also belong to Cadence.
+The robot-localization receiver and A3 backend lifecycle also belong to Cadence.
 The PLNU adapter stays in rally because the packet combines localization with
-rally-specific planner targets. Cadence's standalone localization protocol has
-no ball, racket or strike semantics.
+rally-specific planner targets. The shared Planet localization protocol has no
+ball, racket or strike semantics and can be implemented by other executors.
 
 ## Runtime calls
 
@@ -33,7 +36,7 @@ flowchart LR
     J -->|PLNJ requests, axes, signals| O[Cadence operator adapter]
     J <-->|Read-only describe / status| O
     U[planetj-upper or another producer] -->|Joint angles in radians| M[Cadence latest-target mailbox]
-    E[External localization producer] -->|cadence.localization.v1| R[Cadence localization adapter]
+    E[External localization producer] -->|planet.localization.v1| R[Cadence localization adapter]
     O --> K[Cadence runtime and safety]
     R --> K
     M --> L[Cadence lower + upper motion state]
@@ -59,31 +62,36 @@ flowchart TD
     CR --> PR[planet-rally]
     CR --> SDK[agi3sdk]
     C --> SDK
+    C --> PC[planetConfig]
     PR --> J[planetJoystick]
     PR --> R[planetRecord]
     PR --> Q[planetRelay]
-    PR --> C
-    J --> C
-    R --> C
-    Q --> C
+    PR --> PC
+    J --> PC
+    R --> PC
+    Q --> PC
 ```
 
 Arrows here mean pinned source submodules, not Python imports or network calls.
-The dependency graph has no cycle: Cadence does not contain a Planet submodule.
-Each repository's `source-workspace.json` lists exactly which packages bootstrap
-installs. Having the Cadence source as a submodule does not install its runtime.
+The shared leaf is planetConfig. Planet repositories have no source path back to
+Cadence or the SDK. Cadence and the Planet components consume the leaf separately;
+runtime network connections do not add source dependencies. Each repository's
+`source-workspace.json` lists exactly which packages bootstrap installs.
 
 | Package in the Cadence repository | Contract |
 | --- | --- |
-| `cadence-config` | YAML composition, resource resolution, provenance and snapshots; no robot runtime |
-| `cadence-protocol` | Canonical PLNJ codec, operator/upper-target clients, localization schema and producer; standard library only |
+| `cadence-config` | Compatibility import layer forwarding to `planet-config` |
+| `cadence-protocol` | Compatibility imports and legacy schema defaults forwarding to `planet-protocol` |
 | `cadence-api` | Robot state, commands, execution and RobotIO types |
 | `cadence` | Execution engine, input adapters, state implementations, inference and backends |
 
-PlanetJoystick installs `cadence-config` and `cadence-protocol`. PlanetRecord and
-PlanetRelay need only `cadence-config`. The existing `planetj-protocol` package
-re-exports the canonical codec for compatibility; its bytes and legacy decoding
-are preserved. No second codec implementation is maintained.
+The canonical `planet-config` and `planet-protocol` packages live in planetConfig.
+PlanetJoystick uses both; PlanetRecord and PlanetRelay use the configuration
+library. The existing `planetj-protocol` package re-exports the shared PLNJ codec.
+No Planet component installs a Cadence compatibility package. Cadence retains
+those shims for existing executor applications; no second implementation is
+maintained. cadence-rally installs one shared source from its pinned Cadence
+checkout's `external/planetConfig`; nested copies remain source pins only.
 
 ## Binding an operator to a deployment
 
@@ -94,7 +102,7 @@ such as `debug_name` does not select a state.
 
 | Profile | State IDs and canonical keys |
 | --- | --- |
-| `pkg://planetj/data/cadence.yaml` | `0 passive`, `1 damping`, `2 fixedpos`, `3 loco` |
+| `pkg://planetj/data/operator.yaml` | `0 passive`, `1 damping`, `2 fixedpos`, `3 loco` |
 | planet-rally `operators/rally.yaml` | Inherits 0–3, adds `4 hold_static`, `5 hold_move`, `6 serve`, `7 strike` |
 | planet-rally `operators/rally_with_fast.yaml` | Inherits rally, adds `8 fast_rally` for a catalog that registers it |
 
@@ -104,12 +112,18 @@ IDs stable when reusing an existing profile. `planetj --check-remote` checks eac
 configured name/ID against the running deployment, including catalog aliases.
 An unknown runtime request produces a rejection event and does not change state.
 
-The operator UDP port also answers `cadence.operator.v1` JSON `describe` and
+The operator UDP port also answers `planet.operator.v1` JSON `describe` and
 `status` queries. `describe` reports registered states and safety destinations.
 `status` reports the latest published runtime mode, safety latch and cycle events.
 Queries only read snapshots. Sending a request does not guarantee a transition;
 state gates and safety still apply. Status is a snapshot, not a durable event log
 or a per-request execution receipt.
+
+New clients use `planet.operator.v1`, `planet.joint-target.v1` and
+`planet.localization.v1`. Cadence receivers also accept their legacy `cadence.*`
+names. Operator and target replies echo the request's recognized schema;
+localization is one-way. Legacy `cadence_protocol` clients preserve their old
+schema defaults, while `planet_protocol` clients default to the Planet names.
 
 ## Configuration inheritance and state lifecycle
 
@@ -153,7 +167,8 @@ state and a memory command sink, not a dynamics simulation. It never enables
 hardware publication. Readonly evaluation never calls the SDK writer. Hardware
 publication retains the existing A3 confirmation gate and native watchdog.
 
-`runtime.localization` enables the generic external input. The receiver checks
+`runtime.localization` enables the generic external input defined by
+`planet-protocol`. Cadence's receiver checks
 source identity, coordinate frames, ordered producer sessions/sequences and
 freshness, then supplies a backend-neutral `LocalizationState` to the kernel.
 It does not transform coordinates or hold expired samples. Each state's root-loss

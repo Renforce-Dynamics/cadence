@@ -1,5 +1,7 @@
 {
   "packages": [
+    "external/planetConfig/packages/planet-protocol",
+    "external/planetConfig",
     "packages/cadence-protocol",
     "packages/cadence-api",
     "packages/cadence-config",

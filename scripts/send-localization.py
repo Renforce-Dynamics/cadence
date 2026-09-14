@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish explicit synthetic localization samples using cadence-protocol only.
+"""Publish explicit synthetic localization samples using planet-protocol only.
 
 Without timing flags, send exactly one sample. Continuous publication requires
 both --duration-s and --hz. This is a transport/integration fixture, not a sensor
@@ -12,7 +12,7 @@ import math
 import sys
 import time
 
-from cadence_protocol.localization import LocalizationClient
+from planet_protocol.localization import LocalizationClient
 
 
 def main(argv=None):

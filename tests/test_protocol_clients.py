@@ -262,13 +262,15 @@ def test_deployed_legacy_packets_still_decode(version, raw):
 
 def test_protocol_package_imports_with_only_the_standard_library():
     import cadence_protocol
+    import planet_protocol
 
     source = Path(cadence_protocol.__file__).parent.parent
+    shared = Path(planet_protocol.__file__).parent.parent
     script = """
 import sys
-sys.path.insert(0, sys.argv[1])
+sys.path[:0] = sys.argv[1:]
 import cadence_protocol.operator
 import cadence_protocol.client
 assert not any(name in sys.modules for name in ('numpy', 'cadence', 'cadence_api', 'agi3sdk', 'planetj'))
 """
-    subprocess.run([sys.executable, "-S", "-c", script, str(source)], check=True)
+    subprocess.run([sys.executable, "-S", "-c", script, str(source), str(shared)], check=True)

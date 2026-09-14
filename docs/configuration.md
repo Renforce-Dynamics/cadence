@@ -1,6 +1,6 @@
 # 配置约定
 
-`cadence-config` 是无机器人依赖的小包，planetJoystick、planetRecord、planetRelay、planet-rally 与应用入口共同使用。配置加载不扫描相邻仓库。
+`planet-config` 是独立 planetConfig 仓库提供的配置库，planetJoystick、planetRecord、planetRelay、planet-rally 与执行应用共同使用。Cadence 的 `cadence-config` 包仅保留 `cadence_config` 兼容导入，实际转发到 `planet_config`；Planet 系列直接依赖共享库，不安装 Cadence 或 SDK。配置加载不扫描相邻仓库。
 
 ```yaml
 extends: pkg://cadence/data/demo.yaml
@@ -65,11 +65,13 @@ false，且不能携带 AimRT 配置。
 
 ## 配置与源码依赖
 
-`cadence-config` 和 `cadence-protocol` 是 Cadence 仓库中的独立 distribution。PlanetJoystick 的 submodule 固定 Cadence 源码，bootstrap 只安装这两个轻量包；PlanetRecord 和 PlanetRelay 只需配置包。它们都不会因此安装控制运行时、NumPy 或 SDK。Cadence 本身的 `external/agi3sdk` 提供可选 A3 backend，默认不会安装或编译 SDK。完整关系见 [架构与仓库职责](architecture.md)。
+planetConfig 独立维护 `planet-config` 和 `planet-protocol`。Cadence 与 Planet 系列各自固定共享仓库的源码版本，依赖方向指向 planetConfig。PlanetJoystick 使用两个共享包，PlanetRecord 与 PlanetRelay 使用配置包；它们不再包含 Cadence 或 SDK submodule，也没有对应的 Python 依赖。
+
+Cadence 的 `cadence-config`、`cadence-protocol` 是旧应用兼容层，不复制共享实现。Cadence 自身的 `external/agi3sdk` 提供可选 A3 backend，默认不会安装或编译 SDK。完整关系见 [架构与仓库职责](architecture.md)。
 
 `freeze()` 输出还包含 `overrides.json`。只有使用 `ResolvedConfig.path()` 的资源字段才按声明来源定位；录制输出目录保持相对进程工作目录的语义，设备路径和抽象 socket 地址不作路径重写。各组件的配置文档明确这些字段。
 
-现行任务继承：PlanetJoystick 通用设备默认 → Cadence 通用状态键位 → planet-rally 的 rally 请求 → 显式 site overlay → cadence-rally stack 的本次连接与设备覆盖。`inputs.requests` 使用状态名作为键时可逐项覆盖，`null` 禁用继承项；旧列表仍整体替换。legacy recorder 与 debugger 也使用统一 loader；业务 schema 分别校验。状态机父子关系由运行时和应用定义，与 YAML 的 `extends` 无关。
+现行任务继承：PlanetJoystick 通用设备默认 → `operator.yaml` 通用请求映射 → planet-rally 的 rally 请求 → 显式 site overlay → cadence-rally stack 的本次连接与设备覆盖。映射中的 ID/key 由接收端状态目录解释，配置本身不依赖 Cadence 的状态类。`inputs.requests` 使用状态名作为键时可逐项覆盖，`null` 禁用继承项；旧列表仍整体替换。legacy recorder 与 debugger 也使用统一 loader；业务 schema 分别校验。状态机父子关系由运行时和应用定义，与 YAML 的 `extends` 无关。
 
 ## 通用 operator 接入
 
@@ -94,7 +96,7 @@ runtime:
 
 通用默认值来自 `pkg://cadence/data/operator.yaml`。轴是协议中的归一化输入，由执行部署映射成 `vx`、`vy`（m/s）和 yaw（rad/s），再进行变化率限制。`level` 持续提供按住的安全信号；`rising` 只提供上升沿。PLNJ 断流或 TTL 过期时不再提供状态请求，并向变化率限制器输入零速度。它不会改写上肢目标邮箱。
 
-`a3_operator_demo.yaml` 注册 `passive=0`、`damping=1`、`fixedpos=2`、`loco=3`，从 damping 启动。`a3_operator_stream_demo.yaml` 继承它，把 loco 工厂替换为实时上肢状态并启用独立目标端口。配套发送端是 `pkg://planetj/data/cadence.yaml`；先运行 `planetj --config pkg://planetj/data/cadence.yaml --check-remote` 验证 ID 和状态名。
+`a3_operator_demo.yaml` 注册 `passive=0`、`damping=1`、`fixedpos=2`、`loco=3`，从 damping 启动。`a3_operator_stream_demo.yaml` 继承它，把 loco 工厂替换为实时上肢状态并启用独立目标端口。配套发送端是 `pkg://planetj/data/operator.yaml`；先运行 `planetj --config pkg://planetj/data/operator.yaml --check-remote` 验证 ID 和状态名。
 
 ## 通用外部定位
 
@@ -113,11 +115,15 @@ runtime:
     max_datagrams_per_poll: 64
 ```
 
-协议为 `cadence.localization.v1`：位置 m、线速度 m/s、单位四元数 wxyz。接收端检查
+协议为 `planet.localization.v1`：位置 m、线速度 m/s、单位四元数 wxyz。接收端检查
 source、frame、session/sequence 顺序及 TTL，不做隐式坐标变换。可用年龄为
 `source_age_s + 接收后的单调时钟时间`，上限取发送端 TTL 和 `max_age_s` 的较小值；未测量
 的网络排队时间不包含在内。过期或显式无效的新样本撤回定位，状态级保持与回退由运行时
 契约决定。字段语义与轻量发送端示例见 [部署指南](deployment.md#外部定位)。
+
+共享协议实现位于 planetConfig 的 `planet-protocol`。Cadence 接收端同时支持旧
+`cadence.localization.v1`、`cadence.operator.v1`、`cadence.joint-target.v1`；新生产者使用
+`planet.*.v1`。operator 和上肢目标回复使用请求的 schema 名，定位为单向发送，无回复。
 
 ## 可复用运动状态配置
 

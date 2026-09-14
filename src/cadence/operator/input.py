@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import math
 import time
 from typing import Any, Mapping
-from cadence_protocol.operator import AXIS_NAMES, JoystickCommandPacket, JoystickFlags
+from planet_protocol.operator import AXIS_NAMES, JoystickCommandPacket, JoystickFlags
 
 
 @dataclass(frozen=True, slots=True)

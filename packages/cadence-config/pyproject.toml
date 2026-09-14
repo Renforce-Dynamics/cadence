@@ -10,8 +10,8 @@ license = {file = "LICENSE"}
 name = "cadence-config"
 version = "0.1.0"
 requires-python = ">=3.10"
-description = "cadence-config: independent Cadence ecosystem component"
-dependencies = ["PyYAML>=6"]
+description = "Compatibility imports for planet-config"
+dependencies = ["planet-config>=0.1,<0.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

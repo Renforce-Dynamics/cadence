@@ -32,11 +32,13 @@ cd cadence
 | Package | Responsibility |
 | --- | --- |
 | `cadence-api` | State, command and RobotIO contracts |
-| `cadence-config` | YAML composition, resources, provenance and snapshots |
-| `cadence-protocol` | Standard-library operator, upper-target and localization protocols and clients |
+| `cadence-config` | Compatibility imports forwarding to `planet-config` |
+| `cadence-protocol` | Legacy protocol imports and schema defaults forwarding to `planet-protocol` |
 | `cadence` | Execution kernel, reusable motion states, inference and backends |
 
-`external/agi3sdk` pins the optional A3 backend dependency. The default bootstrap installs only Cadence packages. Use `./scripts/bootstrap.sh --extra a3` to install the SDK and build its mock transport; enable AimRT separately for hardware. Third-party Python dependencies use package version constraints.
+Cadence consumes the shared configuration and protocol libraries from [planetConfig](https://github.com/Renforce-Dynamics/planetConfig): `planet-config` owns YAML composition and resources, and `planet-protocol` owns the operator, joint-target and localization wire contracts. Planet services use those libraries directly and have no source or package dependency on Cadence or the SDK. The two legacy Cadence packages are thin compatibility layers.
+
+`external/planetConfig` pins the shared libraries. `external/agi3sdk` pins the optional A3 backend dependency. The default bootstrap installs Cadence and the shared libraries. Use `./scripts/bootstrap.sh --extra a3` to install the SDK and build its mock transport; enable AimRT separately for hardware. Third-party Python dependencies use package version constraints.
 
 ## Configuration and applications
 
@@ -48,7 +50,7 @@ Configuration precedence is ordered `extends`, then `compose` layers (`robot`, `
 
 Applications register through the `cadence.applications` entry point. [cadence-rally](https://github.com/Renforce-Dynamics/cadence-rally) provides rally skills and deployment profiles, reusing Cadence's lower-body motion states. Cadence has no dependency on its task code.
 
-[planetJoystick](https://github.com/Renforce-Dynamics/planetJoystick) connects directly to Cadence. It supplies configurable requests and joint targets; applications extend the selected state catalog and task bindings. See [repository responsibilities, dependency graph and matching rules](docs/architecture.md).
+[planetJoystick](https://github.com/Renforce-Dynamics/planetJoystick) can connect directly to Cadence through the shared Planet protocol. It supplies configurable requests and joint targets to compatible receivers; applications extend the selected state catalog and task bindings. Cadence owns its receiver and state semantics. See [repository responsibilities, dependency graph and matching rules](docs/architecture.md).
 
 Command submission follows `prepare` → `guard_pending` → backend write → `commit`; rejected writes call `reject`. See [execution tests](tests/test_execution.py).
 
@@ -93,15 +95,15 @@ See [configuration overlays, streaming examples and the motion contract](docs/mo
 .venv/bin/cadence run --config pkg://cadence/data/a3_operator_stream_demo.yaml
 ```
 
-This mock deployment starts in damping, accepts PLNJ on `127.0.0.1:50560`, and exposes the upper-target endpoint on `127.0.0.1:15100`. Use PlanetJoystick's `pkg://planetj/data/cadence.yaml` profile: request fixed position (RB+A), then locomotion (RB+X). `a3_operator_demo.yaml` selects fixed upper posture instead. Both profiles run without a rally package.
+This mock deployment starts in damping, accepts PLNJ on `127.0.0.1:50560`, and exposes the upper-target endpoint on `127.0.0.1:15100`. Use PlanetJoystick's `pkg://planetj/data/operator.yaml` profile: request fixed position (RB+A), then locomotion (RB+X). `a3_operator_demo.yaml` selects fixed upper posture instead. Both profiles run without a rally package.
 
-Before operating, `planetj --config pkg://planetj/data/cadence.yaml --check-remote` checks the live state bindings without sending commands. The [PlanetJoystick example](https://github.com/Renforce-Dynamics/planetJoystick/tree/main/examples/cadence_upper_stream) provides the continuous producer. Joint target receipts confirm reception; the execution kernel commits only after backend acceptance.
+Before operating, `planetj --config pkg://planetj/data/operator.yaml --check-remote` checks the live state bindings without sending commands. The [PlanetJoystick example](https://github.com/Renforce-Dynamics/planetJoystick/tree/main/examples/upper_stream) provides the continuous producer. Joint target receipts confirm reception; the execution kernel commits only after backend acceptance.
 
 ## External localization
 
-`runtime.localization` enables the optional `cadence.localization.v1` UDP input. It carries robot position, orientation and linear velocity with source identity, coordinate frames, session/sequence ordering and sample freshness. Producers can use `cadence_protocol.localization.LocalizationClient` without installing the robot runtime.
+`runtime.localization` enables the optional `planet.localization.v1` UDP input. It carries robot position, orientation and linear velocity with source identity, coordinate frames, session/sequence ordering and sample freshness. Producers use `planet_protocol.localization.LocalizationClient` from planetConfig without installing Cadence or the SDK.
 
-Cadence owns this generic input and each state's localization-loss behavior. Ball trajectories, strike timing and racket targets remain task protocols in rally. See the [localization configuration and producer example](docs/deployment.md#外部定位). Operator expiry supplies zero velocity input; whether a state requires a continuous operator link is an explicit state contract, not a universal emergency-stop rule.
+planetConfig owns the wire contract; Cadence owns its receiver and each state's localization-loss behavior. Cadence also accepts the legacy `cadence.*.v1` schemas for existing clients. Ball trajectories, strike timing and racket targets remain task protocols in rally. See the [localization configuration and producer example](docs/deployment.md#外部定位). Operator expiry supplies zero velocity input; whether a state requires a continuous operator link is an explicit state contract, not a universal emergency-stop rule.
 
 ## Development
 

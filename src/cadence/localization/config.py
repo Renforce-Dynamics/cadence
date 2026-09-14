@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from cadence_config import validate_keys
-from cadence_protocol.localization import _integer, _name, _real
+from planet_protocol.localization import _integer, _name, _real
 
 
 @dataclass(frozen=True, slots=True)

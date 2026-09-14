@@ -40,16 +40,16 @@ python scripts/send-upper-target.py --port 15100 --sequence 1 --q-des \
 
 ## PlanetJoystick 配套入口
 
-连续发送示例由 [planetJoystick](https://github.com/Renforce-Dynamics/planetJoystick/tree/main/examples/cadence_upper_stream) 维护。它直接对接 Cadence：operator 进程发送状态请求、轴和安全信号；独立的 `planetj-upper` 进程发送关节目标。Cadence 持有状态机、下肢模型、PD 增益和提交边界。
+连续发送示例由 [planetJoystick](https://github.com/Renforce-Dynamics/planetJoystick/tree/main/examples/upper_stream) 维护，使用 planetConfig 定义的共享协议。本配套部署由 Cadence 接收：operator 进程发送状态请求、轴和安全信号；独立的 `planetj-upper` 进程发送关节目标。PlanetJoystick 不依赖 Cadence 或 SDK，Cadence 持有本部署的状态机、下肢模型、PD 增益和提交边界。
 
 ```bash
 # Cadence 环境：默认从 damping 启动
 cadence run --config pkg://cadence/data/a3_operator_stream_demo.yaml
 # PlanetJoystick 环境：查询绑定，再运行手柄输入
-planetj --config pkg://planetj/data/cadence.yaml --check-remote
-planetj --config pkg://planetj/data/cadence.yaml
+planetj --config pkg://planetj/data/operator.yaml --check-remote
+planetj --config pkg://planetj/data/operator.yaml
 # 第三个终端：默认采集实体手柄；也可显式选择 --source sine 或 scripted
-planetj-upper
+planetj-upper --config pkg://planetj/data/upper_stream.yaml
 ```
 
 使用 RB+A 请求 fixedpos，随后 RB+X 请求 loco。上肢发送端只发现 activation 和发布帧，不触发状态切换。实体手柄断开后停止发布，不发送默认姿态；重新连接同一 activation 时继续递增序号。新任务直接继承这些接口和配置，无需依赖 rally。

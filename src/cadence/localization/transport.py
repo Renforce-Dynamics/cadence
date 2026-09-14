@@ -7,11 +7,14 @@ import math
 import socket
 import time
 
-from cadence_protocol.localization import (
-    MAX_DATAGRAM_BYTES, LocalizationSample, decode_localization,
+from planet_protocol.localization import (
+    LOCALIZATION_SCHEMA, MAX_DATAGRAM_BYTES, LocalizationSample, decode_localization,
 )
 from cadence.runtime import LocalizationState
 from .config import LocalizationIngressConfig
+
+
+LOCALIZATION_SCHEMAS = (LOCALIZATION_SCHEMA, "cadence.localization.v1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +90,7 @@ class LocalizationReceiver:
             except BlockingIOError:
                 break
             try:
-                sample = decode_localization(payload)
+                sample = decode_localization(payload, schema=LOCALIZATION_SCHEMAS)
             except (ValueError, OverflowError):
                 self.rejected_decode += 1
                 continue

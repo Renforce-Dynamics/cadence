@@ -1,6 +1,6 @@
 # External localization
 
-Cadence owns the common robot-localization contract and receiver. A perception producer only needs the standard-library-only `cadence-protocol` package; it does not need the runtime, a joystick package or Rally. Task goals such as a ball trajectory, striking time and racket target remain task protocol data.
+planetConfig owns the common robot-localization wire contract in its standard-library-only `planet-protocol` package. Cadence implements the runtime receiver and state-specific root-loss behavior. A perception producer needs only the shared package; it does not need Cadence, the SDK, a joystick package or Rally. Task goals such as a ball trajectory, striking time and racket target remain task protocol data.
 
 ## Enable an endpoint
 
@@ -63,7 +63,7 @@ Packets are UTF-8 JSON objects with exactly these fields:
 
 ```json
 {
-  "schema": "cadence.localization.v1",
+  "schema": "planet.localization.v1",
   "type": "localization",
   "source": "mocap",
   "session_id": 1790000000000000,
@@ -79,6 +79,12 @@ Packets are UTF-8 JSON objects with exactly these fields:
   "valid": true
 }
 ```
+
+The canonical schema is `planet.localization.v1`. Cadence also accepts
+`cadence.localization.v1` from existing producers, with the same validation and
+ordering watermark; switching schema names cannot reset a producer's sequence.
+The retained `cadence_protocol` compatibility client uses the legacy name by
+default. New producers import `planet_protocol` and use the Planet schema.
 
 | Field | Meaning |
 | --- | --- |
@@ -121,7 +127,7 @@ This policy is separate from upper-joint targets: the upper-target mailbox inten
 
 ```python
 import time
-from cadence_protocol.localization import LocalizationClient
+from planet_protocol.localization import LocalizationClient
 
 # Capture this alongside the actual sensor sample, before processing it.
 sampled_monotonic = time.monotonic()
@@ -142,7 +148,7 @@ Keep one client for a continuous producer so its sequence increases within one s
 
 ## Run the synthetic sender
 
-From a Cadence checkout with `cadence-protocol` installed in `.venv`, send one explicit pose:
+From a Cadence checkout with `planet-protocol` installed in `.venv`, send one explicit pose:
 
 ```bash
 .venv/bin/python scripts/send-localization.py \
