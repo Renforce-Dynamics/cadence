@@ -112,3 +112,45 @@ def test_joint_ownership_cannot_overlap():
         compose_commands([part, part], fallback)
     with pytest.raises(ValueError, match="outside"):
         compose_commands([CommandPart("other", (3,), part.command)], fallback)
+
+
+def test_fixed_position_entry_gate_parameters():
+    from cadence.plugins import BasicState
+
+    services = SimpleNamespace(dimension=2)
+
+    def frame(now, q):
+        return ControlFrame(now, SimpleNamespace(joint_pos=np.asarray(q, dtype=float)))
+
+    state = BasicState(
+        2,
+        "fixedpos",
+        {
+            "kind": "fixed_position",
+            "target": [0.5, -0.5],
+            "duration_s": 1.0,
+            "entry_gate_progress": 0.5,
+            "entry_gate_tolerance": 0.2,
+        },
+        services,
+    )
+    state.on_enter(frame(0.0, [0.0, 0.0]), [])
+    assert state.step(frame(0.5, [0.4, -0.4])).entry_gate_ready
+    assert not state.step(frame(0.5, [0.0, 0.0])).entry_gate_ready
+    assert not state.step(frame(0.4, [0.4, -0.4])).entry_gate_ready
+
+    strict = BasicState(
+        2, "fixedpos", {"kind": "fixed_position", "target": [0.5, -0.5]}, services
+    )
+    strict.on_enter(frame(0.0, [0.0, 0.0]), [])
+    assert not strict.step(frame(10.0, [0.4, -0.4])).entry_gate_ready
+    assert strict.step(frame(10.0, [0.48, -0.48])).entry_gate_ready
+
+    for bad in (
+        {"entry_gate_progress": 1.5},
+        {"entry_gate_progress": -0.1},
+        {"entry_gate_tolerance": 0.0},
+        {"entry_gate_tolerance": -0.2},
+    ):
+        with pytest.raises(ValueError, match="entry gate"):
+            BasicState(2, "fixedpos", {"kind": "fixed_position", **bad}, services)

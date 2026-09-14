@@ -88,7 +88,17 @@ class BasicState(ControlState):
     def __init__(self, state_id, key, config, services):
         super().__init__(state_id, key, config, services)
         validate_keys(
-            config, {"kind", "kp", "kd", "target", "duration_s"}, required={"kind"}
+            config,
+            {
+                "kind",
+                "kp",
+                "kd",
+                "target",
+                "duration_s",
+                "entry_gate_progress",
+                "entry_gate_tolerance",
+            },
+            required={"kind"},
         )
         self.kind = config["kind"]
         self.n = services.dimension
@@ -99,6 +109,8 @@ class BasicState(ControlState):
         self.kd = np.broadcast_to(config.get("kd", 2.0), (self.n,)).copy()
         self.target = np.asarray(config.get("target", np.zeros(self.n)), dtype=float)
         self.duration = float(config.get("duration_s", 1.0))
+        self.entry_gate_progress = float(config.get("entry_gate_progress", 1.0))
+        self.entry_gate_tolerance = float(config.get("entry_gate_tolerance", 0.05))
         if (
             self.target.shape != (self.n,)
             or self.duration <= 0
@@ -112,6 +124,12 @@ class BasicState(ControlState):
             or np.any(self.kd < 0)
         ):
             raise ValueError("invalid gain")
+        if (
+            not 0.0 <= self.entry_gate_progress <= 1.0
+            or not np.isfinite(self.entry_gate_tolerance)
+            or self.entry_gate_tolerance <= 0
+        ):
+            raise ValueError("invalid entry gate configuration")
 
     def on_enter(self, frame, events):
         self.start = frame.now_s
@@ -129,7 +147,10 @@ class BasicState(ControlState):
         target = (1 - a) * self.initial + a * self.target
         return ControlResult(
             JointCommand(target, z, self.kp, self.kd, z),
-            entry_gate_ready=t >= 1 and np.max(np.abs(q - self.target)) < 0.05,
+            entry_gate_ready=(
+                t >= self.entry_gate_progress
+                and np.max(np.abs(q - self.target)) < self.entry_gate_tolerance
+            ),
         )
 
 
