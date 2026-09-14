@@ -205,7 +205,7 @@ class RuntimeKernel:
                     value.requested_state
                 )
             except ValueError:
-                requested_key = str(value.requested_state).strip().lower()
+                events.append(f"rejected unknown state request {value.requested_state!r}")
         if self._root_loss_blocked_mode is not None:
             if requested_key == self._root_loss_blocked_mode:
                 requested_key = None

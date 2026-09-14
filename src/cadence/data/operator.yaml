@@ -1,0 +1,20 @@
+# Generic operator interpretation. Override velocity scales for the deployment.
+runtime:
+  operator:
+    host: 127.0.0.1
+    port: 50560
+    signal_mode: level
+    mapping:
+      velocity_axes:
+      - left_y
+      - left_x
+      - right_x
+      velocity_scales:
+      - 0.4
+      - 0.2
+      - 0.5
+      emergency_signal_id: 0
+      reset_signal_id: 1
+    linear_slew_rate_mps2: 0.5
+    yaw_slew_rate_radps2: 1.0
+    velocity_deadzone: 0.1

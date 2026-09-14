@@ -36,11 +36,36 @@ cadence config diff configs/demo.yaml other.yaml
 
 ## 配置与源码依赖
 
-配置包是 Cadence 仓库中的独立 distribution；Planet 组件的 submodule 固定 Cadence 源码，但 bootstrap 只安装 `packages/cadence-config`。Cadence 本身的 `external/agi3sdk` 提供可选 A3 backend，默认不会安装或编译 SDK。
+`cadence-config` 和 `cadence-protocol` 是 Cadence 仓库中的独立 distribution。PlanetJoystick 的 submodule 固定 Cadence 源码，bootstrap 只安装这两个轻量包；PlanetRecord 和 PlanetRelay 只需配置包。它们都不会因此安装控制运行时、NumPy 或 SDK。Cadence 本身的 `external/agi3sdk` 提供可选 A3 backend，默认不会安装或编译 SDK。完整关系见 [架构与仓库职责](architecture.md)。
 
 `freeze()` 输出还包含 `overrides.json`。只有使用 `ResolvedConfig.path()` 的资源字段才按声明来源定位；录制输出目录保持相对进程工作目录的语义，设备路径和抽象 socket 地址不作路径重写。各组件的配置文档明确这些字段。
 
-现行任务继承：planetJoystick 通用设备默认 → planet-rally 的 rally 请求 → 显式 site overlay → cadence-rally stack 的本次连接与设备覆盖。legacy recorder 与 debugger 也使用统一 loader；业务 schema 分别校验。状态机父子关系由运行时和应用定义，与 YAML 的 `extends` 无关。
+现行任务继承：PlanetJoystick 通用设备默认 → Cadence 通用状态键位 → planet-rally 的 rally 请求 → 显式 site overlay → cadence-rally stack 的本次连接与设备覆盖。`inputs.requests` 使用状态名作为键时可逐项覆盖，`null` 禁用继承项；旧列表仍整体替换。legacy recorder 与 debugger 也使用统一 loader；业务 schema 分别校验。状态机父子关系由运行时和应用定义，与 YAML 的 `extends` 无关。
+
+## 通用 operator 接入
+
+Cadence 的 `runtime.operator` 显式启用 PLNJ 接收与只读状态查询。未配置时不创建 operator socket：
+
+```yaml
+extends: pkg://cadence/data/a3_operator_demo.yaml
+runtime:
+  operator:
+    host: 127.0.0.1
+    port: 50560
+    signal_mode: level
+    mapping:
+      velocity_axes: [left_y, left_x, right_x]
+      velocity_scales: [0.4, 0.2, 0.5]
+      emergency_signal_id: 0
+      reset_signal_id: 1
+    linear_slew_rate_mps2: 0.5
+    yaw_slew_rate_radps2: 1.0
+    velocity_deadzone: 0.1
+```
+
+通用默认值来自 `pkg://cadence/data/operator.yaml`。轴是协议中的归一化输入，由执行部署映射成 `vx`、`vy`（m/s）和 yaw（rad/s），再进行变化率限制。`level` 持续提供按住的安全信号；`rising` 只提供上升沿。PLNJ 断流或 TTL 过期时不再提供状态请求，并向变化率限制器输入零速度。它不会改写上肢目标邮箱。
+
+`a3_operator_demo.yaml` 注册 `passive=0`、`damping=1`、`fixedpos=2`、`loco=3`，从 damping 启动。`a3_operator_stream_demo.yaml` 继承它，把 loco 工厂替换为实时上肢状态并启用独立目标端口。配套发送端是 `pkg://planetj/data/cadence.yaml`；先运行 `planetj --config pkg://planetj/data/cadence.yaml --check-remote` 验证 ID 和状态名。
 
 ## 可复用运动状态配置
 

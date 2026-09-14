@@ -7,29 +7,21 @@ authors = [{name = "Renforce Dynamics"}]
 maintainers = [{name = "Renforce Dynamics"}]
 readme = "README.md"
 license = {file = "LICENSE"}
-name = "cadence"
+name = "cadence-protocol"
 version = "0.1.0"
 requires-python = ">=3.10"
-description = "Composable robot execution and simulation"
-dependencies = ["cadence-protocol>=0.1,<0.2", "cadence-api>=0.1,<0.2", "cadence-config>=0.1,<0.2", "numpy>=1.24"]
-
-[project.scripts]
-cadence = "cadence.cli:main"
+description = "Cadence operator and joint-target wire contracts and clients"
+dependencies = []
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["cadence*"]
+include = ["cadence_protocol*"]
 
 [tool.setuptools.package-data]
 "*" = ["**/*.yaml", "**/*.json", "**/*.xml", "**/*.STL", "**/*.stl", "**/*.onnx", "**/*.npz", "**/*.hex", "**/*.md", "**/*.lock", "**/LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-
-[project.optional-dependencies]
-sim = ["mujoco>=3,<4"]
-inference = ["onnxruntime>=1.16,<1.24"]
-a3 = ["agi3sdk>=0.1,<0.2"]
 
 [project.urls]
 Repository = "https://github.com/Renforce-Dynamics/cadence"

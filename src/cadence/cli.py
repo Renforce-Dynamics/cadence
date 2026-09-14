@@ -1,6 +1,7 @@
 """Cadence control runtime, configuration tools, and installed application launcher."""
 
 import argparse
+from contextlib import ExitStack
 from importlib.metadata import entry_points, version, PackageNotFoundError
 from types import SimpleNamespace
 from pathlib import Path
@@ -53,7 +54,7 @@ def run_config(path, *, backend_override=None, duration=None, output=None):
         raise ConfigError("unsupported schema version")
     validate_keys(
         cfg["runtime"],
-        {"control_hz", "deadline_ms", "duration_s", "start_state", "velocity_command", "upper_target_udp"},
+        {"control_hz", "deadline_ms", "duration_s", "start_state", "velocity_command", "upper_target_udp", "operator"},
         required={"control_hz", "deadline_ms", "duration_s", "start_state"},
     )
     validate_keys(
@@ -74,6 +75,9 @@ def run_config(path, *, backend_override=None, duration=None, output=None):
     velocity = np.asarray(cfg["runtime"].get("velocity_command", (0, 0, 0)), dtype=float)
     if velocity.shape != (3,) or not np.all(np.isfinite(velocity)):
         raise ValueError("runtime.velocity_command requires three finite values")
+    from .operator.config import OperatorIngressConfig
+
+    operator_config = OperatorIngressConfig.from_mapping(cfg["runtime"].get("operator"))
     dt = 1 / hz
     kind = backend_override or cfg["backend"]["kind"]
     n = len(cfg["robot"]["joints"])
@@ -98,7 +102,7 @@ def run_config(path, *, backend_override=None, duration=None, output=None):
         resolved.freeze(output)
     ticks = 0
     started = time.monotonic()
-    receiver = kernel = None
+    receiver = kernel = operator = None
     try:
         backend.start()
         state = backend.read_state()
@@ -115,6 +119,18 @@ def run_config(path, *, backend_override=None, duration=None, output=None):
             state,
             0.0,
         )
+        if operator_config is not None:
+            from .operator import JoystickCommandReceiver, OperatorInputAdapter
+            from .control.filters import VelocitySlewRateLimiter
+
+            operator = JoystickCommandReceiver(operator_config.host, operator_config.port)
+            operator.set_catalog(kernel.config.state_catalog)
+            operator.update_status(SimpleNamespace(mode=kernel.current.key, safety_halted=False, events=()))
+            input_adapter = OperatorInputAdapter(operator_config.mapping, operator_config.signal_mode)
+            velocity_limiter = VelocitySlewRateLimiter(
+                operator_config.linear_slew_rate_mps2, operator_config.yaw_slew_rate_radps2,
+                operator_config.velocity_deadzone,
+            )
         udp = cfg["runtime"].get("upper_target_udp")
         if udp is not None:
             from .motion.targets import JointTargetUdpReceiver
@@ -128,7 +144,16 @@ def run_config(path, *, backend_override=None, duration=None, output=None):
         while duration == 0 or ticks * dt < duration - 1e-9:
             state = backend.read_state()
             before = time.monotonic()
-            result = kernel.prepare(RuntimeInput(ticks * dt, state, None, velocity_command=tuple(velocity)))
+            inputs = {"velocity_command": tuple(velocity)}
+            if operator is not None:
+                sample = input_adapter.map(operator.poll(), before)
+                # Keep the immutable packet object; dataclasses.asdict would
+                # turn it into a dict and break task-defined input consumers.
+                inputs = {field: getattr(sample, field) for field in sample.__dataclass_fields__}
+                if not kernel.current.uses_loco_velocity or kernel.safety.halted:
+                    velocity_limiter.reset(before)
+                inputs["velocity_command"] = velocity_limiter.update(sample.velocity_command, before)
+            result = kernel.prepare(RuntimeInput(ticks * dt, state, None, **inputs))
             kernel.observe_control_duration(time.monotonic() - before)
             result = kernel.guard_pending()
             try:
@@ -137,18 +162,24 @@ def run_config(path, *, backend_override=None, duration=None, output=None):
                 kernel.reject()
                 raise
             result = kernel.commit()
+            if operator is not None:
+                operator.update_status(result)
             ticks += 1
-            if duration == 0 or receiver is not None:
+            if duration == 0 or receiver is not None or operator is not None:
                 time.sleep(max(0, dt - (time.monotonic() - before)))
     except KeyboardInterrupt:
         pass
     finally:
-        if receiver is not None:
-            receiver.stop()
-        if kernel is not None:
-            kernel.reject()
-            kernel.current.on_exit(ControlFrame(ticks * dt, state), [])
-        backend.close()
+        # Run all cleanup callbacks even when an input or state fails to close.
+        with ExitStack() as cleanup:
+            cleanup.callback(backend.close)
+            if kernel is not None:
+                cleanup.callback(kernel.current.on_exit, ControlFrame(ticks * dt, state), [])
+                cleanup.callback(kernel.reject)
+            if receiver is not None:
+                cleanup.callback(receiver.stop)
+            if operator is not None:
+                cleanup.callback(operator.close)
     print(
         json.dumps(
             {
@@ -188,6 +219,7 @@ def main(argv=None):
                 "cadence",
                 "cadence-api",
                 "cadence-config",
+                "cadence-protocol",
                 "mujoco",
                 "onnxruntime",
                 "agi3sdk",

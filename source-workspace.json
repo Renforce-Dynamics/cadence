@@ -1,5 +1,6 @@
 {
   "packages": [
+    "packages/cadence-protocol",
     "packages/cadence-api",
     "packages/cadence-config",
     "."

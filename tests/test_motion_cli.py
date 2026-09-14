@@ -105,6 +105,40 @@ def test_udp_binding_rejects_fixed_state_and_closes_backend(tmp_path, monkeypatc
     assert closed == [True]
 
 
+def test_operator_cleanup_failure_still_exits_state_and_closes_backend(tmp_path, monkeypatch):
+    from cadence.backends.mock import MockBackend
+    from cadence.operator import JoystickCommandReceiver
+    from cadence.plugins import BasicState
+
+    cleanup = []
+    original_receiver_close = JoystickCommandReceiver.close
+    original_backend_close = MockBackend.close
+
+    def close_receiver(receiver):
+        original_receiver_close(receiver)
+        cleanup.append("operator")
+        raise RuntimeError("operator cleanup failed")
+
+    def exit_state(state, frame, events):
+        cleanup.append("state")
+
+    def close_backend(backend):
+        cleanup.append("backend")
+        original_backend_close(backend)
+
+    monkeypatch.setattr(JoystickCommandReceiver, "close", close_receiver)
+    monkeypatch.setattr(BasicState, "on_exit", exit_state)
+    monkeypatch.setattr(MockBackend, "close", close_backend)
+    config = tmp_path / "operator.yaml"
+    config.write_text(yaml.safe_dump({
+        "extends": ["pkg://cadence/data/demo.yaml", "pkg://cadence/data/operator.yaml"],
+        "runtime": {"operator": {"port": 0}},
+    }))
+    with pytest.raises(RuntimeError, match="operator cleanup failed"):
+        run_config(config, duration=.02)
+    assert cleanup == ["operator", "state", "backend"]
+
+
 @pytest.mark.parametrize("field", ["control_hz", "duration_s", "deadline_ms"])
 @pytest.mark.parametrize("value", [".nan", ".inf", "-.inf"])
 def test_nonfinite_timing_rejected_before_backend_start(tmp_path, monkeypatch, field, value):

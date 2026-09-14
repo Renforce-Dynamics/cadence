@@ -8,6 +8,7 @@ Cadence runs control cycles, composes skill outputs and commits skill progress a
 - Independent safety supervision and explicit joint ownership.
 - Layered configuration, provenance and reproducible snapshots.
 - Reusable lower-body locomotion with fixed or streamed upper-joint targets.
+- A shared operator endpoint for state requests, velocity, safety signals and status queries.
 
 Robot dimensions are configured by deployments. The package includes an A3 lower-body policy adapter and model; task behavior remains in applications.
 
@@ -30,6 +31,7 @@ cd cadence
 | --- | --- |
 | `cadence-api` | State, command and RobotIO contracts |
 | `cadence-config` | YAML composition, resources, provenance and snapshots |
+| `cadence-protocol` | Standard-library PLNJ codec and operator/upper-target UDP clients |
 | `cadence` | Execution kernel, reusable motion states, inference and backends |
 
 `external/agi3sdk` pins the optional A3 backend dependency. The default bootstrap installs only Cadence packages. Use `./scripts/bootstrap.sh --extra a3` to install the SDK and build its mock transport; enable AimRT separately for hardware. Third-party Python dependencies use package version constraints.
@@ -43,6 +45,8 @@ cd cadence
 Configuration precedence is ordered `extends`, then `compose` layers (`robot`, `backend`, `task`, `site`, `experiment`), then the current file and explicit overrides. Mappings merge recursively; lists replace. See the [configuration reference](docs/configuration.md).
 
 Applications register through the `cadence.applications` entry point. [cadence-rally](https://github.com/Renforce-Dynamics/cadence-rally) provides rally skills and deployment profiles, reusing Cadence's lower-body motion states. Cadence has no dependency on its task code.
+
+[planetJoystick](https://github.com/Renforce-Dynamics/planetJoystick) connects directly to Cadence. It supplies configurable requests and joint targets; applications extend the selected state catalog and task bindings. See [repository responsibilities, dependency graph and matching rules](docs/architecture.md).
 
 Command submission follows `prepare` → `guard_pending` → backend write → `commit`; rejected writes call `reject`. See [execution tests](tests/test_execution.py).
 
@@ -64,6 +68,17 @@ Both states run the lower policy every control cycle and submit one complete PD 
 These examples run the actual A3 actor against the mock backend. The streaming example explicitly enables a local UDP receiver on port `15100`; `scripts/send-upper-target.py` sends joint targets. During an activation, delayed or interrupted input keeps the latest target indefinitely. The default posture is reapplied on state entry, and safety supervision always retains priority. A reception receipt confirms mailbox acceptance; execution is committed only after the backend accepts the composed command.
 
 See [configuration overlays, streaming examples and the motion contract](docs/motion-composition.md).
+
+## Operator-controlled deployment
+
+```bash
+./scripts/bootstrap.sh --extra inference
+.venv/bin/cadence run --config pkg://cadence/data/a3_operator_stream_demo.yaml
+```
+
+This mock deployment starts in damping, accepts PLNJ on `127.0.0.1:50560`, and exposes the upper-target endpoint on `127.0.0.1:15100`. Use PlanetJoystick's `pkg://planetj/data/cadence.yaml` profile: request fixed position (RB+A), then locomotion (RB+X). `a3_operator_demo.yaml` selects fixed upper posture instead. Both profiles run without a rally package.
+
+Before operating, `planetj --config pkg://planetj/data/cadence.yaml --check-remote` checks the live state bindings without sending commands. The [PlanetJoystick example](https://github.com/Renforce-Dynamics/planetJoystick/tree/main/examples/cadence_upper_stream) provides the continuous producer. Joint target receipts confirm reception; the execution kernel commits only after backend acceptance.
 
 ## Development
 
