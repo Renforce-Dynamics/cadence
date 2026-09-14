@@ -1,0 +1,6 @@
+extends: safety.yaml
+states:
+  2:
+    key: fixed_position
+    factory: cadence.plugins:BasicState
+    config: ../states/two_joint_fixed.yaml

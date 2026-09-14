@@ -1,0 +1,7 @@
+extends:
+- ../runtime/control.yaml
+- ../robots/two_joint.yaml
+- ../backends/mujoco.yaml
+runtime:
+  state_registry_config: ../state_registries/basic.yaml
+  start_state: fixed_position

@@ -1,0 +1,5 @@
+extends: a3_operator.yaml
+states:
+  3:
+    factory: cadence.motion:LowerLocoStreamState
+    config: ../states/a3_lower_stream.yaml

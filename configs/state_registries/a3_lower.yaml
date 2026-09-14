@@ -1,0 +1,6 @@
+extends: safety.yaml
+states:
+  3:
+    key: loco
+    factory: cadence.motion:LowerLocoState
+    config: ../states/a3_lower.yaml

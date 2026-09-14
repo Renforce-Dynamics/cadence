@@ -1,8 +1,0 @@
-extends: a3_operator_demo.yaml
-runtime:
-  upper_target_udp: {state: loco, host: 127.0.0.1, port: 15100}
-catalog:
-  states:
-    3:
-      factory: cadence.motion:LowerLocoStreamState
-      config: pkg://cadence/data/motion/a3_lower_stream.yaml

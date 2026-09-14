@@ -1,0 +1,7 @@
+schema_version: 1
+runtime:
+  control_hz: 50
+  deadline_ms: 20
+  duration_s: 1.0
+  headless: true
+  velocity_command: [0.0, 0.0, 0.0]

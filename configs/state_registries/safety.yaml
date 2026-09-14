@@ -1,0 +1,11 @@
+reset_state_id: 0
+safety_fallback_state_id: 1
+states:
+  0:
+    key: passive
+    factory: cadence.plugins:BasicState
+    config: ../states/passive.yaml
+  1:
+    key: damping
+    factory: cadence.plugins:BasicState
+    config: ../states/damping.yaml

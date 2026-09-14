@@ -1,0 +1,6 @@
+extends: a3_lower.yaml
+states:
+  2:
+    key: fixedpos
+    factory: cadence.plugins:BasicState
+    config: ../states/a3_fixedpos.yaml

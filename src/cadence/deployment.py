@@ -16,46 +16,66 @@ from types import SimpleNamespace
 import numpy as np
 from cadence_config import load_config, validate_keys, ConfigError, ResolvedConfig
 
-def load_run_config(path, *, overrides=(), backend_override=None, duration=None):
-    """Resolve state config files and retain their declaration-relative paths."""
+def _configuration_file(value):
+    """Configuration is a user-owned file, never a package resource."""
+    if str(value).startswith(("pkg://", "artifact://")):
+        raise ConfigError("configuration must be a file in configs/, not a package resource")
+    path = Path(value).expanduser().resolve()
+    if not path.is_file():
+        raise ConfigError(f"configuration does not exist: {path}")
+    return path
+
+
+def load_run_config(path):
+    """Read one entry, then its declared registry and state files.
+
+    Every reference is relative to the YAML that declares it. The caller's
+    directory only resolves the entry argument; there is no package fallback.
+    """
     resolved = load_config(
-        path,
-        overrides=overrides,
+        _configuration_file(path),
         allowed={"schema_version", "robot", "backend", "runtime", "catalog"},
-        required={"schema_version", "robot", "backend", "runtime", "catalog"},
+        required={"schema_version", "robot", "backend", "runtime"},
     )
     data, origins = deepcopy(resolved.data), dict(resolved.origins)
-    applied = list(resolved.overrides)
-    flags = {}
-    if backend_override is not None:
-        flags["backend.kind"] = "a3" if backend_override == "readonly" else backend_override
-        if backend_override == "readonly":
-            flags["backend.read_only"] = True
-            flags["backend.command_publish_enabled"] = False
-    if duration is not None:
-        flags["runtime.duration_s"] = duration
-    for key, value in flags.items():
-        section, field = key.split(".")
-        data[section][field] = value
-        origins[key] = str(resolved.source)
-        applied.append(f"{key}={json.dumps(value)}")
+    runtime = data["runtime"]
+    if not isinstance(runtime, Mapping):
+        raise ConfigError("runtime must be a mapping")
+    registry_key = "runtime.state_registry_config"
+    if "state_registry_config" in runtime:
+        if "catalog" in data:
+            raise ConfigError("entry must select runtime.state_registry_config or inline catalog, not both")
+        value = runtime["state_registry_config"]
+        if not isinstance(value, str) or value.startswith(("pkg://", "artifact://")):
+            raise ConfigError("runtime.state_registry_config must reference a configuration file")
+        registry_path = _configuration_file(resolved.path(registry_key))
+        registry = load_config(registry_path)
+        data["catalog"] = deepcopy(registry.data)
+        origins.update({f"catalog.{key}": value for key, value in registry.origins.items()})
+        runtime["state_registry_config"] = str(registry_path)
+    if "catalog" not in data:
+        raise ConfigError("runtime.state_registry_config is required")
     from .plugins import PluginCatalog
 
     catalog = data["catalog"]
     if not isinstance(catalog, Mapping) or not isinstance(catalog.get("states"), Mapping):
-        raise ConfigError("catalog.states must be a mapping")
+        raise ConfigError("state registry must contain a states mapping")
     PluginCatalog(catalog)
-    for state_id, definition in data["catalog"]["states"].items():
+    expanded = ResolvedConfig(data, origins, resolved.source, resolved.overrides)
+    for state_id, definition in catalog["states"].items():
         prefix = f"catalog.states.{state_id}.config"
-        if isinstance(definition.get("config"), str):
-            child = load_config(resolved.path(prefix))
-            definition["config"] = child.data
+        value = definition.get("config")
+        if isinstance(value, str):
+            if value.startswith(("pkg://", "artifact://")):
+                raise ConfigError(f"{prefix} must reference a configuration file")
+            child = load_config(_configuration_file(expanded.path(prefix)))
+            definition["config"] = deepcopy(child.data)
             origins.pop(prefix, None)
-            origins.update({f"{prefix}.{key}": value for key, value in child.origins.items()})
+            origins.update({f"{prefix}.{key}": source for key, source in child.origins.items()})
         if not isinstance(definition.get("config"), Mapping):
             raise ConfigError(f"{prefix} must be a mapping or configuration path")
-    expanded = ResolvedConfig(data, origins, resolved.source, tuple(applied))
-    for state_id, definition in data["catalog"]["states"].items():
+    expanded = ResolvedConfig(data, origins, resolved.source, resolved.overrides)
+    for state_id, definition in catalog["states"].items():
         lower = definition.get("config", {}).get("lower")
         if isinstance(lower, dict) and "model" in lower:
             lower["model"] = str(expanded.path(f"catalog.states.{state_id}.config.lower.model"))
@@ -94,7 +114,7 @@ def prepare_deployment(resolved):
         raise ConfigError("unsupported schema version")
     validate_keys(cfg["runtime"], {
         "control_hz", "deadline_ms", "duration_s", "start_state", "velocity_command",
-        "operator", "localization", "upper_target_udp",
+        "operator", "localization", "upper_target_udp", "state_registry_config", "headless",
     }, required={"control_hz", "deadline_ms", "duration_s", "start_state"}, label="runtime")
     validate_keys(cfg["robot"], {"joints", "position_min", "position_max"},
                   required={"joints", "position_min", "position_max"}, label="robot")
@@ -111,6 +131,8 @@ def prepare_deployment(resolved):
     hz, duration, deadline_ms = float(hz), float(duration), float(deadline_ms)
     if not np.all(np.isfinite([hz, duration, deadline_ms])) or hz <= 0 or duration < 0 or deadline_ms <= 0:
         raise ConfigError("rate and deadline must be finite and positive; duration must be finite and nonnegative")
+    if type(cfg["runtime"].get("headless", True)) is not bool:
+        raise ConfigError("runtime.headless must be a boolean")
     velocity = np.asarray(cfg["runtime"].get("velocity_command", (0, 0, 0)), dtype=float)
     if velocity.shape != (3,) or not np.all(np.isfinite(velocity)):
         raise ConfigError("runtime.velocity_command requires three finite values")
@@ -156,7 +178,7 @@ def prepare_deployment(resolved):
         if raw["transport"] == "aimrt" and not Path(raw["aimrt"]["config_path"]).is_file():
             raise ConfigError(f"AimRT configuration does not exist: {raw['aimrt']['config_path']}")
     else:
-        raise ConfigError("backend.kind must be mock, mujoco or a3; --backend readonly selects read-only A3")
+        raise ConfigError("backend.kind must be mock, mujoco or a3; read-only A3 is configured in backend.read_only")
     return DeploymentPlan(resolved, catalog, backend, hz, duration, deadline_ms / 1000,
                           dimension, operator, localization, upper, tuple(velocity))
 
@@ -207,13 +229,13 @@ def _publish_status(receiver, output, *, shadow):
     })
 
 
-def run_config(path, *, backend_override=None, duration=None, output=None, overrides=(), check=False):
+def run_config(path, *, output=None, check=False):
     """Run a standalone deployment; optional checks never start RobotIO or UDP."""
     from .plugins import ControlFrame
     from .runtime import RuntimeKernel, RuntimeConfig, RuntimeInput
     from .runtime.loop import execute_cycle, read_control_state
 
-    resolved = load_run_config(path, overrides=overrides, backend_override=backend_override, duration=duration)
+    resolved = load_run_config(path)
     plan = prepare_deployment(resolved)
     cfg, backend = resolved.data, plan.backend
     _freeze(plan, output)
@@ -234,7 +256,7 @@ def run_config(path, *, backend_override=None, duration=None, output=None, overr
     realtime = hardware or plan.duration_s == 0 or any((plan.operator, plan.localization, plan.upper))
     ticks = writes = shadow_steps = stale_skips = state_timeouts = 0
     failure = None
-    kernel = receiver = operator = localization = None
+    kernel = receiver = operator = localization = viewer = None
     state = None
     state_now = 0.0
     stop = threading.Event()
@@ -253,6 +275,9 @@ def run_config(path, *, backend_override=None, duration=None, output=None, overr
                 localization = LocalizationReceiver(plan.localization)
                 cleanup.callback(localization.close)
             backend.start()
+            if cfg["backend"]["kind"] == "mujoco" and not cfg["runtime"].get("headless", True):
+                import mujoco.viewer
+                viewer = cleanup.enter_context(mujoco.viewer.launch_passive(backend.model, backend.data))
             state = backend.read_state(timeout_s=getattr(backend, "startup_timeout_s", None))
             initial_sample = localization.poll() if localization is not None else None
             initial_root = (None if initial_sample is None else initial_sample.localization) if localization is not None else _backend_localization(backend, state)
@@ -288,6 +313,8 @@ def run_config(path, *, backend_override=None, duration=None, output=None, overr
             started = next_tick = last_fresh_state = time.monotonic()
             observed_watchdog = getattr(backend, "watchdog_trip_count", 0)
             while not stop.is_set():
+                if viewer is not None and not viewer.is_running():
+                    break
                 if plan.duration_s and (time.monotonic() - started if hardware else ticks * dt) >= plan.duration_s - 1e-9:
                     break
                 try:
@@ -339,6 +366,8 @@ def run_config(path, *, backend_override=None, duration=None, output=None, overr
                 writes += cycle.submitted
                 shadow_steps += cycle.shadow
                 ticks += 1
+                if viewer is not None:
+                    viewer.sync()
                 if operator is not None:
                     _publish_status(operator, cycle.output, shadow=shadow)
                 if realtime and not hardware:

@@ -21,7 +21,7 @@ where = ["src"]
 include = ["cadence*"]
 
 [tool.setuptools.package-data]
-"*" = ["**/*.yaml", "**/*.json", "**/*.xml", "**/*.STL", "**/*.stl", "**/*.onnx", "**/*.npz", "**/*.hex", "**/*.md", "**/*.lock", "**/LICENSE"]
+"*" = ["**/*.json", "**/*.xml", "**/*.STL", "**/*.stl", "**/*.onnx", "**/*.npz", "**/*.hex", "**/*.md", "**/*.lock", "**/LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

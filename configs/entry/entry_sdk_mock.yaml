@@ -1,0 +1,8 @@
+extends:
+- ../runtime/control.yaml
+- ../robots/a3.yaml
+- ../backends/a3_sdk_mock.yaml
+- ../inputs/operator.yaml
+runtime:
+  state_registry_config: ../state_registries/a3_operator.yaml
+  start_state: damping

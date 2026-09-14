@@ -2,7 +2,7 @@
 
 import argparse
 from datetime import datetime, timezone
-from importlib.metadata import entry_points, version, PackageNotFoundError
+from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
 import uuid
 import yaml
@@ -18,13 +18,8 @@ def main(argv=None):
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("run", "deploy"):
         run = sub.add_parser(name)
-        run.add_argument("--config", help="Deployment YAML or pkg:// resource")
-        run.add_argument("--profile", help="Installed application/profile")
-        run.add_argument("--backend")
-        run.add_argument("--duration-s", type=float)
-        run.add_argument("--headless", action="store_true")
-        run.add_argument("--output", help="Snapshot directory (deploy defaults to runs/deploy-*)")
-        run.add_argument("--set", action="append", default=[])
+        run.add_argument("--config", required=True, help="Entry YAML file, e.g. configs/entry/entry_sim.yaml")
+        run.add_argument("--output", help="Snapshot directory (defaults to runs/deploy-*)")
         run.add_argument("--check", action="store_true", help="Validate the deployment and load models without opening inputs or RobotIO")
     config = sub.add_parser("config")
     config.add_argument("action", choices=["resolve", "validate", "diff"])
@@ -73,32 +68,9 @@ def main(argv=None):
             else:
                 print("Configuration valid:", resolved.digest)
             return 0
-        if args.command == "deploy" and args.output is None:
+        if args.output is None:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             args.output = str(Path("runs") / f"deploy-{stamp}-{uuid.uuid4().hex[:8]}")
-        if args.profile:
-            name, sep, profile = args.profile.partition("/")
-            for entry in entry_points(group="cadence.applications"):
-                if entry.name == name:
-                    options = dict(backend=args.backend, duration=args.duration_s,
-                                   headless=args.headless, output=args.output)
-                    if args.config is not None:
-                        options["config"] = args.config
-                    if args.set:
-                        options["overrides"] = args.set
-                    if args.check:
-                        options["check"] = True
-                    if args.command == "deploy":
-                        options["deploy"] = True
-                    return entry.load().run(profile or None, **options)
-            raise ValueError(f"application {name!r} is not installed")
-        return run_config(
-            args.config or "pkg://cadence/data/demo.yaml",
-            backend_override=args.backend,
-            duration=args.duration_s,
-            output=args.output,
-            overrides=args.set,
-            check=args.check,
-        )
+        return run_config(args.config, output=args.output, check=args.check)
     except (ValueError, OSError, ImportError, RuntimeError) as error:
         p.error(str(error))

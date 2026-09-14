@@ -1,0 +1,7 @@
+# Entry uses the configured upper posture; each accepted frame replaces the held target.
+# Loss of the stream keeps the most recently accepted joint targets indefinitely.
+runtime:
+  upper_target_udp:
+    state: loco
+    host: 127.0.0.1
+    port: 15100
