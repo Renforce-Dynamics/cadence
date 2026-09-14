@@ -17,6 +17,8 @@ class MujocoBackend:
         quaternion_sensor=None,
         root_site=None,
     ):
+        if "://" in str(model_xml):
+            raise ValueError("MuJoCo model requires an explicit filesystem path")
         import mujoco
 
         self.mujoco = mujoco

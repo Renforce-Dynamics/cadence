@@ -101,8 +101,8 @@ ldd /opt/agibot/bin/libaimrt_iceoryx_plugin.so
 
 直接使用根目录中的现有入口：
 
-- 只读：`configs/entry/entry_onboard_a3_real_readonly.yaml`。
-- 命令：`configs/entry/entry_onboard_a3_real.yaml`。
+- 只读：`configs/entry/a3/onboard/entry_onboard_a3_real_readonly.yaml`。
+- 命令：`configs/entry/a3/onboard/entry_onboard_a3_real.yaml`。
 
 跨机器使用手柄时，将 [operator 配置](../configs/inputs/operator.yaml) 的
 `runtime.operator.host` 改为 MDU 实际网卡地址或 `0.0.0.0`，端口默认 `50560`。
@@ -111,13 +111,13 @@ ldd /opt/agibot/bin/libaimrt_iceoryx_plugin.so
 
 ```bash
 cd /agibot/cadence
-./scripts/run.sh --config configs/entry/entry_onboard_a3_real_readonly.yaml --check
-./scripts/run.sh --config configs/entry/entry_onboard_a3_real.yaml --check
+./scripts/run.sh --config configs/entry/a3/onboard/entry_onboard_a3_real_readonly.yaml --check
+./scripts/run.sh --config configs/entry/a3/onboard/entry_onboard_a3_real.yaml --check
 ```
 
 `--check` 加载配置与模型，不连接 AimRT、不检查 HAL 是否在线，也不要求命令发布确认。
 运行快照默认保存在 `runs/deploy-*`；可用 `--output` 指定目录。现场需保留独立版本时，
-在 `configs/entry/entry_site.yaml` 显式继承上述入口并覆盖差异，见 [配置约定](configuration.md)。
+在 `configs/entry/a3/onboard/entry_site.yaml` 显式继承上述入口并覆盖差异，见 [配置约定](configuration.md)。
 
 每个新的 runtime 终端都需要重新加载第 2 节的厂商环境、ROS、消息库路径，并设置
 `AGI3SDK_LIBRARY`。运行脚本沿用当前终端的环境。
@@ -177,7 +177,7 @@ runtime 验证。HAL 退出、状态缺失或设备报错时，先解决底层�
 
 ```bash
 cd /agibot/cadence
-./scripts/run.sh --config configs/entry/entry_onboard_a3_real_readonly.yaml
+./scripts/run.sh --config configs/entry/a3/onboard/entry_onboard_a3_real_readonly.yaml
 ```
 
 只读模式接收真实状态并执行 shadow 计算，不创建硬件命令 publisher。检查退出时的摘要
@@ -189,8 +189,8 @@ MDU 实际地址，`target.port` 保持与 runtime 一致。只读 runtime 的 `
 设为 `0` 时可以持续接收查询和输入。在已安装 PlanetJoystick 的环境中，从该 checkout 执行：
 
 ```bash
-planetj --config configs/entry/entry_joystick.yaml --check-remote
-planetj --config configs/entry/entry_joystick.yaml
+planetj --config configs/entry/joystick/entry_joystick.yaml --check-remote
+planetj --config configs/entry/joystick/entry_joystick.yaml
 ```
 
 关闭只读 runtime 后，再次确认支撑、急停、HAL 与进程状态，启动唯一的命令 runtime：
@@ -198,7 +198,7 @@ planetj --config configs/entry/entry_joystick.yaml
 ```bash
 cd /agibot/cadence
 A3_CONFIRM_ONBOARD=YES ./scripts/run.sh \
-  --config configs/entry/entry_onboard_a3_real.yaml
+  --config configs/entry/a3/onboard/entry_onboard_a3_real.yaml
 ```
 
 默认从 `damping` 启动。通用注册表的 IDs 为 passive=0、damping=1、fixedpos=2、loco=3；

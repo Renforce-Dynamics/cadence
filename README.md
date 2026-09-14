@@ -13,35 +13,36 @@ cd cadence
 运行仿真：
 
 ```bash
-./scripts/run.sh --config configs/entry/entry_sim.yaml
+./scripts/run.sh --config configs/entry/examples/entry_sim.yaml
 ```
 
 A3 上机先完成 [环境、AimRT 构建和 HAL/PM 交接](docs/a3-onboard.md)，再依次运行只读验证与正式控制：
 
 ```bash
-./scripts/run.sh --config configs/entry/entry_onboard_a3_real_readonly.yaml
+./scripts/run.sh --config configs/entry/a3/onboard/entry_onboard_a3_real_readonly.yaml
 # 结束只读进程后启动命令模式
-A3_CONFIRM_ONBOARD=YES ./scripts/run.sh --config configs/entry/entry_onboard_a3_real.yaml
+A3_CONFIRM_ONBOARD=YES ./scripts/run.sh --config configs/entry/a3/onboard/entry_onboard_a3_real.yaml
 ```
 
 运行方式由配置决定；修改后端、时长、初始状态、网络和上肢姿态，都修改所选入口的配置链。
 
 ```text
-configs/
-├── entry/             # 本次运行入口 entry_*.yaml
-├── robots/            # 关节名称、顺序和限位
-├── backends/          # mock、MuJoCo、A3 只读或命令
-├── state_registries/  # 状态 ID、工厂和状态配置引用
-├── states/            # PD、下肢模型和上肢姿态
-├── inputs/            # operator、上肢目标、外部定位
-├── operators/         # 与状态注册表匹配的手柄发送配置
-├── runtime/           # 控制频率、时长和窗口设置
-└── aimrt/             # 硬件通信配置
+cadence/
+├── configs/
+│   ├── entry/
+│   │   ├── examples/   # 双关节 mock / MuJoCo
+│   │   ├── a3/mock/    # A3 策略、operator、SDK mock
+│   │   ├── a3/onboard/ # 真机只读 / 命令、实时上肢
+│   │   └── joystick/   # 独立手柄进程
+│   └── ...             # robots、backends、state_registries、states、inputs 等
+├── models/             # ONNX 模型、校验清单
+├── assets/             # MuJoCo XML 等运行资源
+└── src/cadence/         # Python 代码
 ```
 
 A3 operator 默认状态为 `passive=0`、`damping=1`、`fixedpos=2`、`loco=3`。固定上肢持续使用配置姿态；流式上肢进入时采用默认姿态，此后保持最新关节目标，断流也保持。角度单位为弧度。
 
-手柄是独立进程，使用本仓库配套入口：`planetj --config configs/entry/entry_joystick.yaml`。
+手柄是独立进程，使用本仓库配套入口：`planetj --config configs/entry/joystick/entry_joystick.yaml`。
 PlanetJoystick 在发送端单独安装；Cadence 不安装它。运行时和手柄各用自己的 entry，配套命令和键位见 [CMD.md](CMD.md)。
 
 [命令与入口选择](CMD.md) · [A3 上机教程](docs/a3-onboard.md) · [配置](docs/configuration.md) · [运动组合](docs/motion-composition.md) · [全部文档](docs/README.md)

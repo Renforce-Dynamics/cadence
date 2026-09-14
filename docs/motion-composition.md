@@ -15,7 +15,7 @@ Cadence 提供两个可跨任务复用的运动状态：下肢策略持续控制
 
 ```bash
 ./scripts/bootstrap.sh --extra inference
-./scripts/run.sh --config configs/entry/entry_a3_lower.yaml
+./scripts/run.sh --config configs/entry/a3/mock/entry_a3_lower.yaml
 ```
 
 该示例运行真实 A3 ONNX 策略，使用内存 mock backend；它验证推理和命令执行链，不模拟接触动力学。运行摘要中的 `dimension` 为 29，`mode` 为 `loco`。Cadence 自带独立 A3 readonly、命令和 native SDK mock 部署配置，见 [部署指南](deployment.md)；MuJoCo 的机器人场景由部署配置选择。
@@ -23,7 +23,7 @@ Cadence 提供两个可跨任务复用的运动状态：下肢策略持续控制
 实时上肢入口在本地端口 `15100` 接收目标。将该入口的 `runtime.duration_s` 设为 `0` 以持续运行：
 
 ```bash
-./scripts/run.sh --config configs/entry/entry_a3_lower_stream.yaml
+./scripts/run.sh --config configs/entry/a3/mock/entry_a3_lower_stream.yaml
 ```
 
 在另一终端发送 14 个双臂关节角度：
@@ -45,19 +45,19 @@ python3 scripts/send-upper-target.py --port 15100 --sequence 1 --q-des \
 在 Cadence 仓库运行：
 
 ```bash
-./scripts/run.sh --config configs/entry/entry_a3_operator_stream.yaml
+./scripts/run.sh --config configs/entry/a3/mock/entry_a3_operator_stream.yaml
 ```
 
 在已安装 PlanetJoystick 的环境中，从 Cadence 仓库启动配套手柄进程：
 
 ```bash
-planetj --config configs/entry/entry_joystick.yaml
+planetj --config configs/entry/joystick/entry_joystick.yaml
 ```
 
 上肢生产者使用自己的配置，在另一个终端从 PlanetJoystick 仓库启动：
 
 ```bash
-./scripts/upper-stream.sh -- --config examples/upper_stream/config.yaml
+./scripts/upper-stream.sh -- --config configs/entry/entry_upper_stream.yaml
 ```
 
 启动前可为手柄命令加 `--check-remote` 检查状态 ID 和 key。上肢生产者默认采集实体手柄，
@@ -105,7 +105,7 @@ states:
 | `robot.lower_joints` / `upper_joints` | 不重叠且覆盖全身的控制分区 |
 | `control.kp` / `kd` | 所有受控关节的 PD 增益，可为向量或统一标量 |
 | `lower.factory` | 模型适配器；默认 `cadence.motion.a3:A3LowerPolicy` |
-| `lower.model` | 下肢 ONNX 模型路径，默认引用 Cadence 安装包中的 A3 模型 |
+| `lower.model` | 下肢 ONNX 模型路径，默认从状态文件引用 `../../models/a3_loco_lower.onnx` |
 | `lower.history_frames` | A3 H4 模型固定为 4 |
 | `lower.mask_upper_observation` | 是否将观测中的上肢归零到训练参考姿态；A3 默认配置为 `false` |
 | `upper.default_position` | 上肢控制目标，顺序遵循 `robot.upper_joints` |

@@ -212,7 +212,7 @@ def test_script_preserves_caller_paths_and_snapshots_entry_values(tmp_path, scri
     folder = tmp_path / "site folder"
     folder.mkdir()
     config = folder / "entry config.yaml"
-    config.write_text(yaml.safe_dump({"extends": str(repository / "configs/entry/entry_mock.yaml"),
+    config.write_text(yaml.safe_dump({"extends": str(repository / "configs/entry/examples/entry_mock.yaml"),
                                       "runtime": {"duration_s": .02, "control_hz": 100}}))
     subprocess.run([str(script), "--venv", sys.prefix, "--config", "site folder/entry config.yaml",
                     "--output", "run folder", "--check"], cwd=tmp_path, check=True, capture_output=True, text=True)
@@ -226,7 +226,7 @@ def test_script_preserves_caller_paths_and_snapshots_entry_values(tmp_path, scri
 
 def test_deploy_creates_default_snapshot_under_caller_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert main(["deploy", "--config", str(Path(__file__).resolve().parents[1] / "configs/entry/entry_mock.yaml"), "--check"]) == 0
+    assert main(["deploy", "--config", str(Path(__file__).resolve().parents[1] / "configs/entry/examples/entry_mock.yaml"), "--check"]) == 0
     targets = list((tmp_path / "runs").glob("deploy-*/deployment.json"))
     assert len(targets) == 1
 

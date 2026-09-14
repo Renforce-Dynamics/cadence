@@ -81,7 +81,7 @@ def test_cli_operator_requests_queries_and_stream_holding(tmp_path, monkeypatch)
     }))
     config = tmp_path / "operator.yaml"
     config.write_text(yaml.safe_dump({
-        "extends": str(configs / "entry/entry_a3_operator_stream.yaml"),
+        "extends": str(configs / "entry/a3/mock/entry_a3_operator_stream.yaml"),
         "runtime": {
             "duration_s": 1.5,
             "state_registry_config": "registry.yaml",

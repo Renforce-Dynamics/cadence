@@ -102,7 +102,7 @@ such as `debug_name` does not select a state.
 
 | Profile | State IDs and canonical keys |
 | --- | --- |
-| Cadence `configs/entry/entry_joystick.yaml` | `0 passive`, `1 damping`, `2 fixedpos`, `3 loco` |
+| Cadence `configs/entry/joystick/entry_joystick.yaml` | `0 passive`, `1 damping`, `2 fixedpos`, `3 loco` |
 | planet-rally `operators/rally.yaml` | Uses 0–3 and adds `4 hold_static`, `5 hold_move`, `6 serve`, `7 strike` |
 | planet-rally `operators/rally_with_fast.yaml` | Inherits rally, adds `8 fast_rally` for a catalog that registers it |
 
@@ -114,7 +114,7 @@ An unknown runtime request produces a rejection event and does not change state.
 
 Cadence keeps the complete companion producer config in `configs/operators/joystick.yaml`.
 The runtime reads its runtime entry; a separately installed PlanetJoystick process
-reads `configs/entry/entry_joystick.yaml`. Both the fixed-upper and streamed-upper
+reads `configs/entry/joystick/entry_joystick.yaml`. Both the fixed-upper and streamed-upper
 A3 operator registries use these bindings. Keeping matching configuration here
 adds no PlanetJoystick package dependency or source submodule.
 
@@ -134,10 +134,13 @@ schema defaults, while `planet_protocol` clients default to the Planet names.
 ## Configuration inheritance and state lifecycle
 
 Cadence and its task applications keep runtime configuration in their root `configs/` trees. Cadence
-requires an explicit `configs/entry/entry_*.yaml`; it contains references to robot,
+requires an explicit `configs/entry/**/entry_*.yaml`; it contains references to robot,
 backend, input and runtime layers. Backend selection, duration, window behavior,
 start state and network endpoints are all selected by that configuration chain.
-Configuration is not distributed inside the Python package; model assets can be.
+Python packages contain code only. Configuration, models and simulation assets live in
+the checkout's root `configs/`, `models/` and `assets/` trees. Every runtime resource
+is an explicit file relative to its declaring YAML; there is no package URI or
+repository search fallback.
 
 The entry's `runtime.state_registry_config` points to an independent catalog mapping
 in `configs/state_registries/`. Each `states.<id>.config` refers to a state file in
@@ -174,7 +177,7 @@ loads its task states into the shared execution infrastructure; it depends on
 the Cadence library, without requiring a separate Cadence process. The same
 prepare/guard/write/commit transaction and A3 SDK adapter serve both layers.
 
-Cadence's `scripts/run.sh --config configs/entry/entry_sim.yaml` selects an explicit
+Cadence's `scripts/run.sh --config configs/entry/examples/entry_sim.yaml` selects an explicit
 entry. The run command exposes only configuration selection, output directory and
 `--check`. Both execution and checking save the selected configuration; checking
 loads states and models without starting I/O. Sockets and device lifecycles are

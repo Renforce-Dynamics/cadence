@@ -30,7 +30,7 @@ def test_entry_argument_is_required(command, tmp_path, monkeypatch):
     ('--duration-s', '1'), ('--headless', None), ('--set', 'runtime.duration_s=1'),
 ])
 def test_execution_choices_cannot_override_entry(flag, value):
-    args = ['run', '--config', str(ROOT / 'configs/entry/entry_mock.yaml'), flag]
+    args = ['run', '--config', str(ROOT / 'configs/entry/examples/entry_mock.yaml'), flag]
     if value is not None:
         args.append(value)
     with pytest.raises(SystemExit) as error:
@@ -41,7 +41,10 @@ def test_execution_choices_cannot_override_entry(flag, value):
 def test_repository_has_one_configuration_tree():
     assert not list((ROOT / 'src').rglob('*.yaml'))
     assert not list((ROOT / 'src').rglob('*.yml'))
-    for entry in (ROOT / 'configs/entry').glob('entry_*.yaml'):
+    entries = sorted((ROOT / 'configs/entry').rglob('entry_*.yaml'))
+    assert len(entries) == 12
+    assert not list((ROOT / 'configs/entry').glob('*.yaml'))
+    for entry in entries:
         if entry.name in SERVICE_ENTRIES:
             resolved = load_config(entry)
             assert set(resolved.data) == SERVICE_ENTRIES[entry.name]
@@ -51,11 +54,44 @@ def test_repository_has_one_configuration_tree():
         assert all(not source.startswith('pkg://') for source in resolved.origins.values())
 
 
+def test_source_packages_contain_code_and_no_runtime_data():
+    roots = [ROOT / 'src', *sorted((ROOT / 'packages').glob('*/src'))]
+    for source in roots:
+        for path in source.rglob('*'):
+            if path.is_file() and '__pycache__' not in path.parts and not any(part.endswith('.egg-info') for part in path.parts):
+                assert path.suffix in {'.py', '.pyi'} or path.name == 'py.typed', path
+    assert not (ROOT / 'src/cadence/data').exists()
+    assert (ROOT / 'models/a3_loco_lower.onnx').is_file()
+    assert (ROOT / 'assets/two_joint.xml').is_file()
+
+
+@pytest.mark.parametrize('value', ['pkg://cadence/__init__.py', 'artifact://actor'])
+def test_models_require_explicit_files_in_their_declaring_configuration(tmp_path, value):
+    entry = tmp_path / 'entry.yaml'
+    entry.write_text(yaml.safe_dump({
+        'extends': str(ROOT / 'configs/entry/examples/entry_sim.yaml'),
+        'backend': {'model': value},
+    }))
+    with pytest.raises(ConfigError, match='explicit filesystem path'):
+        load_run_config(entry)
+
+
+def test_missing_model_does_not_fall_back_to_repository_asset(tmp_path, monkeypatch):
+    entry = tmp_path / 'entry.yaml'
+    entry.write_text(yaml.safe_dump({
+        'extends': str(ROOT / 'configs/entry/examples/entry_sim.yaml'),
+        'backend': {'model': 'assets/two_joint.xml'},
+    }))
+    monkeypatch.chdir(ROOT)
+    with pytest.raises(ConfigError, match='file does not exist'):
+        load_run_config(entry)
+
+
 def test_local_state_edit_changes_actual_pd_command(tmp_path, monkeypatch):
     from cadence.backends.mock import MockBackend
 
     shutil.copytree(ROOT / 'configs', tmp_path / 'configs')
-    entry = tmp_path / 'configs/entry/entry_mock.yaml'
+    entry = tmp_path / 'configs/entry/examples/entry_mock.yaml'
     raw = yaml.safe_load(entry.read_text())
     raw['runtime']['duration_s'] = .06
     entry.write_text(yaml.safe_dump(raw))
@@ -83,7 +119,7 @@ def test_local_state_edit_changes_actual_pd_command(tmp_path, monkeypatch):
 def test_registry_and_inline_catalog_are_not_competing_sources(tmp_path):
     entry = tmp_path / 'entry.yaml'
     entry.write_text(yaml.safe_dump({
-        'extends': str(ROOT / 'configs/entry/entry_mock.yaml'), 'catalog': {'states': {}},
+        'extends': str(ROOT / 'configs/entry/examples/entry_mock.yaml'), 'catalog': {'states': {}},
     }))
     with pytest.raises(ConfigError, match='not both'):
         load_run_config(entry)
@@ -92,7 +128,7 @@ def test_registry_and_inline_catalog_are_not_competing_sources(tmp_path):
 def test_missing_entry_does_not_fall_back_to_checkout(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ConfigError, match='configuration does not exist'):
-        load_run_config('configs/entry/entry_mock.yaml')
+        load_run_config('configs/entry/examples/entry_mock.yaml')
 
 
 def test_package_configuration_is_not_an_entry():
@@ -123,7 +159,7 @@ def test_visible_simulation_obeys_configured_wall_clock(tmp_path, monkeypatch):
     monkeypatch.setattr(mujoco.viewer, 'launch_passive', lambda *args: Viewer())
     monkeypatch.setattr(deployment.time, 'sleep', lambda value: sleeps.append(value))
     entry = tmp_path / 'entry_visible.yaml'
-    entry.write_text(yaml.safe_dump({'extends': str(ROOT / 'configs/entry/entry_sim.yaml'),
+    entry.write_text(yaml.safe_dump({'extends': str(ROOT / 'configs/entry/examples/entry_sim.yaml'),
                                     'runtime': {'duration_s': .04, 'headless': False}}))
     assert run_config(entry) == 0
     assert len(rendered) == len(sleeps) == 2

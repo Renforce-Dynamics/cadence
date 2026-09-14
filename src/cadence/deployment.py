@@ -16,6 +16,22 @@ from types import SimpleNamespace
 import numpy as np
 from cadence_config import load_config, validate_keys, ConfigError, ResolvedConfig
 
+
+def _declared_file(resolved, key):
+    """Resolve one explicit file relative to the YAML that declares it."""
+    value = resolved.data
+    for part in key.split("."):
+        value = value[part if part in value else int(part)]
+    if not isinstance(value, (str, Path)) or not str(value).strip() or "://" in str(value):
+        raise ConfigError(f"{key} must reference an explicit filesystem path")
+    source = Path(resolved.origins.get(key, str(resolved.source)))
+    path = Path(value).expanduser()
+    path = (path if path.is_absolute() else source.parent / path).resolve()
+    if not path.is_file():
+        raise ConfigError(f"{key}: file does not exist: {path}")
+    return path
+
+
 def _configuration_file(value):
     """Configuration is a user-owned file, never a package resource."""
     if str(value).startswith(("pkg://", "artifact://")):
@@ -48,7 +64,7 @@ def load_run_config(path):
         value = runtime["state_registry_config"]
         if not isinstance(value, str) or value.startswith(("pkg://", "artifact://")):
             raise ConfigError("runtime.state_registry_config must reference a configuration file")
-        registry_path = _configuration_file(resolved.path(registry_key))
+        registry_path = _declared_file(resolved, registry_key)
         registry = load_config(registry_path)
         data["catalog"] = deepcopy(registry.data)
         origins.update({f"catalog.{key}": value for key, value in registry.origins.items()})
@@ -68,7 +84,7 @@ def load_run_config(path):
         if isinstance(value, str):
             if value.startswith(("pkg://", "artifact://")):
                 raise ConfigError(f"{prefix} must reference a configuration file")
-            child = load_config(_configuration_file(expanded.path(prefix)))
+            child = load_config(_declared_file(expanded, prefix))
             definition["config"] = deepcopy(child.data)
             origins.pop(prefix, None)
             origins.update({f"{prefix}.{key}": source for key, source in child.origins.items()})
@@ -78,13 +94,13 @@ def load_run_config(path):
     for state_id, definition in catalog["states"].items():
         lower = definition.get("config", {}).get("lower")
         if isinstance(lower, dict) and "model" in lower:
-            lower["model"] = str(expanded.path(f"catalog.states.{state_id}.config.lower.model"))
+            lower["model"] = str(_declared_file(expanded, f"catalog.states.{state_id}.config.lower.model"))
     backend = data["backend"]
     for key in ("model", "library_path"):
         if backend.get(key) is not None:
-            backend[key] = str(expanded.path(f"backend.{key}"))
+            backend[key] = str(_declared_file(expanded, f"backend.{key}"))
     if isinstance(backend.get("aimrt"), dict) and "config_path" in backend["aimrt"]:
-        backend["aimrt"]["config_path"] = str(expanded.path("backend.aimrt.config_path"))
+        backend["aimrt"]["config_path"] = str(_declared_file(expanded, "backend.aimrt.config_path"))
     return expanded
 
 

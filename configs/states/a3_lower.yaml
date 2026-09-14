@@ -215,7 +215,7 @@ control:
   - 2.0
 lower:
   factory: cadence.motion.a3:A3LowerPolicy
-  model: pkg://cadence/data/models/a3_loco_lower.onnx
+  model: ../../models/a3_loco_lower.onnx
   history_frames: 4
   mask_upper_observation: false
   runtime:

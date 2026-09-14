@@ -1,8 +1,0 @@
-extends:
-- ../runtime/control.yaml
-- ../robots/a3.yaml
-- ../backends/mock.yaml
-- ../inputs/upper_targets.yaml
-runtime:
-  state_registry_config: ../state_registries/a3_lower_stream.yaml
-  start_state: loco

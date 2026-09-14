@@ -1,6 +1,7 @@
 """A3 model ABI regressions; runnable without any task repository installed."""
 
 import hashlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -190,10 +191,22 @@ def test_adapter_loads_cadence_runner_without_application_services(tmp_path, mon
     assert adapter.infer(_frame(), np.zeros(29))[0].shape == (15,)
 
 
-def test_packaged_a3_actor_preserves_deployed_action_values():
+def test_adapter_does_not_search_the_services_repository_for_a_model(tmp_path):
+    (tmp_path / 'actor.onnx').touch()
+    with pytest.raises(ValueError, match='resolved relative to its declaring configuration'):
+        a3.A3LowerPolicy(_config('actor.onnx'), SimpleNamespace(repository=tmp_path))
+
+
+@pytest.mark.parametrize('model', ['pkg://cadence/__init__.py', 'artifact://actor'])
+def test_adapter_rejects_resource_uris(model):
+    with pytest.raises(ValueError, match='explicit filesystem path'):
+        a3.A3LowerPolicy(_config(model), SimpleNamespace())
+
+
+def test_root_a3_actor_preserves_deployed_action_values():
     pytest.importorskip("onnxruntime")
     adapter = a3.A3LowerPolicy(
-        _config("pkg://cadence/data/models/a3_loco_lower.onnx"), SimpleNamespace()
+        _config(Path(__file__).resolve().parents[1] / "models/a3_loco_lower.onnx"), SimpleNamespace()
     )
     frame = SimpleNamespace(
         robot_state=SimpleNamespace(

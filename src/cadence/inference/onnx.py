@@ -51,6 +51,8 @@ class OnnxPolicy:
         action_dimension: int = 1,
         runtime_options: OnnxRuntimeOptions | None = None,
     ) -> None:
+        if "://" in str(model_path):
+            raise ValueError("ONNX model requires an explicit filesystem path")
         try:
             import onnxruntime as ort
         except ImportError as error:

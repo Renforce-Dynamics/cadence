@@ -1,10 +1,10 @@
 # 配置约定
 
-`configs/` 是运行配置的唯一来源，入口统一放在 `configs/entry/entry_*.yaml`。
-配置不随 Python 包分发；安装包保留代码与模型资源。启动时显式选择入口：
+`configs/` 是运行配置的唯一来源，入口统一放在 `configs/entry/**/entry_*.yaml`。
+Python 包只分发代码；配置、模型和仿真资源分别保存在仓库根 `configs/`、`models/`、`assets/`。启动时显式选择入口：
 
 ```bash
-./scripts/run.sh --config configs/entry/entry_sim.yaml
+./scripts/run.sh --config configs/entry/examples/entry_sim.yaml
 ```
 
 后端、初始状态、运行时长、窗口、网络、注册表和上肢模型选择都由入口的配置链决定。
@@ -14,7 +14,10 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `configs/entry/` | 每个进程各自的入口；runtime 组合机器人、后端、输入和状态注册表，joystick 引用发送配置 |
+| `configs/entry/examples/` | 双关节 mock 与 MuJoCo 示例 |
+| `configs/entry/a3/mock/` | A3 模型、operator 与 SDK mock 验证 |
+| `configs/entry/a3/onboard/` | 真机只读、命令与流式上肢 |
+| `configs/entry/joystick/` | 独立手柄进程 |
 | `configs/robots/` | 关节名称、顺序、限位 |
 | `configs/backends/` | mock、MuJoCo、A3 transport 与命令发布设置 |
 | `configs/state_registries/` | 状态 ID、key、factory、state config 与安全目的状态 |
@@ -23,17 +26,19 @@
 | `configs/operators/` | 与本仓库状态注册表匹配的手柄设备、键位、发送地址 |
 | `configs/runtime/` | 频率、控制期限、默认时长和窗口设置 |
 | `configs/aimrt/` | AimRT/Iceoryx 插件配置 |
+| `models/` | 下肢模型和校验清单 |
+| `assets/` | 仿真 XML 等资源 |
 
-例如 [A3 operator 入口](../configs/entry/entry_a3_operator.yaml) 组合通用基础配置，并选择独立注册表：
+例如 [A3 operator 入口](../configs/entry/a3/mock/entry_a3_operator.yaml) 组合通用基础配置，并选择独立注册表：
 
 ```yaml
 extends:
-  - ../runtime/control.yaml
-  - ../robots/a3.yaml
-  - ../backends/mock.yaml
-  - ../inputs/operator.yaml
+  - ../../../runtime/control.yaml
+  - ../../../robots/a3.yaml
+  - ../../../backends/mock.yaml
+  - ../../../inputs/operator.yaml
 runtime:
-  state_registry_config: ../state_registries/a3_operator.yaml
+  state_registry_config: ../../../state_registries/a3_operator.yaml
   start_state: damping
   duration_s: 0
 ```
@@ -53,7 +58,7 @@ states:
 `runtime.state_registry_config` 相对于声明它的文件解析，`states.<id>.config` 相对于声明该引用的注册表解析。
 被引用的状态文件继续按自己的来源解析模型路径。继承不会改变路径来源，运行目录不会改变这些引用。
 
-手柄进程单独使用 `planetj --config configs/entry/entry_joystick.yaml`，继承本仓库完整的
+手柄进程单独使用 `planetj --config configs/entry/joystick/entry_joystick.yaml`，继承本仓库完整的
 `configs/operators/joystick.yaml`。它与 `a3_operator.yaml`、`a3_operator_stream.yaml` 均匹配
 `0 passive / 1 damping / 2 fixedpos / 3 loco`；归一化轴由手柄发送，速度比例由 runtime 的
 `configs/inputs/operator.yaml` 决定。两个进程各自选择 entry；保存配套配置不会增加 PlanetJoystick
@@ -61,7 +66,7 @@ states:
 
 ## 修改与继承
 
-直接修改现有入口及其引用文件即可。需要保存现场版本时，在 `configs/entry/entry_site.yaml`
+直接修改现有入口及其引用文件即可。需要保存现场版本时，在 `configs/entry/a3/onboard/entry_site.yaml`
 引用既有入口，只写差异：
 
 ```yaml
@@ -73,7 +78,7 @@ runtime:
 ```
 
 ```bash
-./scripts/run.sh --config configs/entry/entry_site.yaml
+./scripts/run.sh --config configs/entry/a3/onboard/entry_site.yaml
 ```
 
 `extends` 按列表顺序合并，最后合并当前文件。字典递归合并，列表整体替换。
@@ -82,8 +87,8 @@ runtime:
 YAML 继承只合并配置，状态工厂选择实现，运行时决定状态切换与生命周期。
 
 ```bash
-.venv/bin/cadence config resolve configs/entry/entry_sim.yaml --output runs/config
-./scripts/run.sh --config configs/entry/entry_sim.yaml --check
+.venv/bin/cadence config resolve configs/entry/examples/entry_sim.yaml --output runs/config
+./scripts/run.sh --config configs/entry/examples/entry_sim.yaml --check
 ```
 
 `config resolve` 展示入口的合并结果；运行加载还会展开注册表及其状态文件。
@@ -107,7 +112,9 @@ A3 的 29 维关节名称和顺序必须与 SDK 一致。
 [实时上肢配置](../configs/states/a3_lower_stream.yaml) 继承它。
 调整上肢姿态修改 `upper.default_position`，完整提供 14 个弧度值。
 `robot.default_position` 属于模型观测和动作解码契约，不应作为上肢动作配置修改。
-`lower.factory`、`lower.model` 选择下肢模型适配器和资源；模型可以继续使用安装包内资源，无需复制模型。
+`lower.factory`、`lower.model` 选择下肢适配器和模型文件。默认模型在根 `models/a3_loco_lower.onnx`，
+状态配置通过 `../../models/a3_loco_lower.onnx` 引用它；仿真 XML 在根 `assets/two_joint.xml`。
+文件路径相对于声明它的 YAML 解析，不查询安装包或其他仓库；缺失文件直接报错。
 
 任务仓库通过固定版本的 Cadence submodule 引用这些文件，例如任务的 `configs/states/loco.yaml`：
 

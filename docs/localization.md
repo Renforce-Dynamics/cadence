@@ -5,18 +5,18 @@ planetConfig owns the common robot-localization wire contract in its standard-li
 ## Enable an endpoint
 
 All runtime configuration lives in the repository's root `configs/` tree.
-To add localization to the existing A3 operator entry, include `../inputs/localization.yaml`
-in `configs/entry/entry_a3_operator.yaml` and set the producer identity:
+To add localization to the existing A3 operator entry, include `../../../inputs/localization.yaml`
+in `configs/entry/a3/mock/entry_a3_operator.yaml` and set the producer identity:
 
 ```yaml
 extends:
-  - ../runtime/control.yaml
-  - ../robots/a3.yaml
-  - ../backends/mock.yaml
-  - ../inputs/operator.yaml
-  - ../inputs/localization.yaml
+  - ../../../runtime/control.yaml
+  - ../../../robots/a3.yaml
+  - ../../../backends/mock.yaml
+  - ../../../inputs/operator.yaml
+  - ../../../inputs/localization.yaml
 runtime:
-  state_registry_config: ../state_registries/a3_operator.yaml
+  state_registry_config: ../../../state_registries/a3_operator.yaml
   start_state: damping
   duration_s: 5
   localization:
@@ -53,7 +53,7 @@ damping or checking the configuration. Run from the Cadence checkout:
 
 ```bash
 ./scripts/bootstrap.sh --extra inference
-./scripts/run.sh --config configs/entry/entry_a3_operator.yaml
+./scripts/run.sh --config configs/entry/a3/mock/entry_a3_operator.yaml
 ```
 
 Adding `--check` validates the entry, registry and models without opening a socket or backend.
@@ -62,8 +62,8 @@ An initial state requiring world localization cannot start without a fresh root;
 `damping` and request the dependent state after localization arrives. See [deployment](deployment.md).
 
 Cadence-rally selects this same input through its own root entry and pinned Cadence submodule.
-From a Rally entry in `configs/entry/`, the shared layer is
-`../../external/cadence/configs/inputs/localization.yaml`.
+Reference `external/cadence/configs/inputs/localization.yaml` relative to the
+entry that declares the dependency.
 Its PLNU receiver continues carrying task plans and targets; the selected localization input
 supplies the world root. The task application already contains the Cadence runtime.
 See [Cadence-rally configuration](https://github.com/Renforce-Dynamics/cadence-rally/blob/main/docs/configuration.md).

@@ -197,7 +197,7 @@ def test_sender_requires_explicit_pose_and_continuous_timing(arguments):
         assert receiver.poll() is None
 
 
-def test_packaged_config_layer_enables_explicit_matched_localization():
+def test_root_config_layer_enables_explicit_matched_localization():
     from cadence_config import load_config
 
     resolved = load_config(Path(__file__).resolve().parents[1] / "configs/inputs/localization.yaml")

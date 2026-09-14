@@ -1,4 +1,4 @@
-"""Installed-resource and actual UDP-to-command coverage for the generic runner."""
+"""Explicit file resources and actual UDP-to-command coverage for the runner."""
 
 import json
 from pathlib import Path
@@ -9,15 +9,16 @@ import pytest
 import yaml
 
 from cadence.cli import load_run_config, run_config
-from cadence_config import load_config, resolve_resource
+from cadence_config import load_config
 
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 
 
 def test_state_resource_inheritance_and_declaration_relative_model(tmp_path, monkeypatch):
-    state = load_config(CONFIGS / "states/a3_lower.yaml").data
+    state_config = load_config(CONFIGS / "states/a3_lower.yaml")
+    state = state_config.data
     model = tmp_path / "actor.onnx"
-    model.symlink_to(resolve_resource(state["lower"]["model"]))
+    model.symlink_to(state_config.path("lower.model"))
     state["lower"]["model"] = "actor.onnx"
     (tmp_path / "state.yaml").write_text(yaml.safe_dump(state))
     registry = tmp_path / "registry.yaml"
@@ -27,7 +28,7 @@ def test_state_resource_inheritance_and_declaration_relative_model(tmp_path, mon
     }))
     config = tmp_path / "run.yaml"
     config.write_text(yaml.safe_dump({
-        "extends": str(CONFIGS / "entry/entry_a3_lower.yaml"),
+        "extends": str(CONFIGS / "entry/a3/mock/entry_a3_lower.yaml"),
         "runtime": {"state_registry_config": "registry.yaml"},
     }))
     monkeypatch.chdir(tmp_path.parent)
@@ -41,7 +42,7 @@ def test_state_resource_inheritance_and_declaration_relative_model(tmp_path, mon
 def test_real_actor_runs_without_task_packages(tmp_path, capsys):
     pytest.importorskip("onnxruntime")
     entry = tmp_path / "entry_actor.yaml"
-    entry.write_text(yaml.safe_dump({"extends": str(CONFIGS / "entry/entry_a3_lower.yaml"),
+    entry.write_text(yaml.safe_dump({"extends": str(CONFIGS / "entry/a3/mock/entry_a3_lower.yaml"),
                                      "runtime": {"duration_s": .1}}))
     assert run_config(entry, output=tmp_path) == 0
     result = json.loads(capsys.readouterr().out)
@@ -88,7 +89,7 @@ def test_udp_latest_command_survives_sender_disconnect(tmp_path, monkeypatch):
     monkeypatch.setattr(JointTargetUdpReceiver, "start", start)
     monkeypatch.setattr(MockBackend, "write_command", write)
     config = tmp_path / "stream.yaml"
-    config.write_text(f"extends: {CONFIGS / 'entry/entry_a3_lower_stream.yaml'}\nruntime:\n  duration_s: 0.12\n  upper_target_udp: {{port: 0}}\n")
+    config.write_text(f"extends: {CONFIGS / 'entry/a3/mock/entry_a3_lower_stream.yaml'}\nruntime:\n  duration_s: 0.12\n  upper_target_udp: {{port: 0}}\n")
     assert run_config(config) == 0
     np.testing.assert_allclose(commands[0][15:], posture)
     assert len(commands) == 6
@@ -110,7 +111,7 @@ def test_udp_binding_rejects_fixed_state_and_closes_backend(tmp_path, monkeypatc
 
     monkeypatch.setattr(MockBackend, "close", close)
     config = tmp_path / "invalid.yaml"
-    config.write_text(f"extends: {CONFIGS / 'entry/entry_a3_lower.yaml'}\nruntime:\n  upper_target_udp: {{state: loco, host: 127.0.0.1, port: 0}}\n")
+    config.write_text(f"extends: {CONFIGS / 'entry/a3/mock/entry_a3_lower.yaml'}\nruntime:\n  upper_target_udp: {{state: loco, host: 127.0.0.1, port: 0}}\n")
     with pytest.raises(ValueError, match="streamed"):
         run_config(config)
     assert closed == [True]
@@ -142,7 +143,7 @@ def test_operator_cleanup_failure_still_exits_state_and_closes_backend(tmp_path,
     monkeypatch.setattr(MockBackend, "close", close_backend)
     config = tmp_path / "operator.yaml"
     config.write_text(yaml.safe_dump({
-        "extends": [str(CONFIGS / "entry/entry_mock.yaml"), str(CONFIGS / "inputs/operator.yaml")],
+        "extends": [str(CONFIGS / "entry/examples/entry_mock.yaml"), str(CONFIGS / "inputs/operator.yaml")],
         "runtime": {"operator": {"port": 0}, "duration_s": .02},
     }))
     with pytest.raises(RuntimeError, match="operator cleanup failed"):
@@ -160,6 +161,6 @@ def test_nonfinite_timing_rejected_before_backend_start(tmp_path, monkeypatch, f
 
     monkeypatch.setattr(MockBackend, "start", unexpected_start)
     config = tmp_path / "invalid.yaml"
-    config.write_text(f"extends: {CONFIGS / 'entry/entry_mock.yaml'}\nruntime:\n  {field}: {value}\n")
+    config.write_text(f"extends: {CONFIGS / 'entry/examples/entry_mock.yaml'}\nruntime:\n  {field}: {value}\n")
     with pytest.raises(ValueError, match="finite"):
         run_config(config)

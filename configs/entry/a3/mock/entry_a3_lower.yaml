@@ -1,0 +1,8 @@
+# Actual ONNX actor with an in-memory backend; no hardware connection.
+extends:
+- ../../../runtime/control.yaml
+- ../../../robots/a3.yaml
+- ../../../backends/mock.yaml
+runtime:
+  state_registry_config: ../../../state_registries/a3_lower.yaml
+  start_state: loco

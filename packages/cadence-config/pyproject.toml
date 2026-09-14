@@ -17,8 +17,11 @@ dependencies = ["planet-config>=0.1,<0.2"]
 where = ["src"]
 include = ["cadence_config*"]
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.package-data]
-"*" = ["**/*.yaml", "**/*.json", "**/*.xml", "**/*.STL", "**/*.stl", "**/*.onnx", "**/*.npz", "**/*.hex", "**/*.md", "**/*.lock", "**/LICENSE"]
+"*" = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

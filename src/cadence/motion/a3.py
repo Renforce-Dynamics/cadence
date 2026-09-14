@@ -15,8 +15,6 @@ from pathlib import Path
 
 import numpy as np
 
-from cadence_config import resolve_resource
-
 from cadence.inference import OnnxPolicy, OnnxRuntimeOptions
 
 
@@ -212,9 +210,14 @@ class A3LowerPolicy:
         options = config.lower.runtime
         if not isinstance(options, OnnxRuntimeOptions):
             options = OnnxRuntimeOptions(**dict(options))
-        model = resolve_resource(
-            config.lower.model, base=getattr(services, "repository", None)
-        )
+        if "://" in str(config.lower.model):
+            raise ValueError("lower.model requires an explicit filesystem path")
+        model = Path(config.lower.model).expanduser()
+        if not model.is_absolute():
+            raise ValueError("lower.model must be resolved relative to its declaring configuration")
+        model = model.resolve()
+        if not model.is_file():
+            raise FileNotFoundError(model)
         self.policy_config = _PolicyConfig(model, "velocity_lower_h4", options)
         self.policy_model = str(model)
         self.policy_spec = _PolicySpec()

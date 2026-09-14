@@ -62,11 +62,8 @@ def _number(value, name, *, positive=False, integer=False):
 def _path(value, base_dir, name):
     if not isinstance(value, (str, Path)) or not str(value).strip():
         raise ValueError(f"{name} must be a nonempty file path")
-    # Config composition should resolve pkg:// references before this boundary.
-    if str(value).startswith("pkg://"):
-        from cadence_config import resolve_resource
-
-        return resolve_resource(value)
+    if "://" in str(value):
+        raise ValueError(f"{name} requires an explicit filesystem path")
     path = Path(value).expanduser()
     return (path if path.is_absolute() else base_dir / path).resolve()
 

@@ -1,4 +1,4 @@
 backend:
   kind: mujoco
-  model: pkg://cadence/data/two_joint.xml
+  model: ../../assets/two_joint.xml
   physics_timestep_s: 0.005

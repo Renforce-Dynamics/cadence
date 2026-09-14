@@ -6,8 +6,8 @@ Cadence 独立运行通用状态、下肢策略和输入接收。cadence-rally �
 ## 运行
 
 ```bash
-./scripts/run.sh --config configs/entry/entry_sim.yaml
-./scripts/run.sh --config configs/entry/entry_sdk_mock.yaml --output runs/sdk-session
+./scripts/run.sh --config configs/entry/examples/entry_sim.yaml
+./scripts/run.sh --config configs/entry/a3/mock/entry_sdk_mock.yaml --output runs/sdk-session
 ```
 
 配置路径相对于调用时的工作目录。入口放在根 `configs/entry/`；后端、时长、初始状态、窗口和网络均由其引用的配置决定。
@@ -19,13 +19,13 @@ Cadence 独立运行通用状态、下肢策略和输入接收。cadence-rally �
 
 | `configs/entry/` 下的入口 | 后端和状态 |
 | --- | --- |
-| `entry_mock.yaml` / `entry_sim.yaml` | 双关节 mock / MuJoCo |
-| `entry_a3_operator.yaml` | A3 通用状态和固定上肢，内存后端 |
-| `entry_a3_operator_stream.yaml` | A3 通用状态和实时上肢，内存后端 |
-| `entry_sdk_mock.yaml` | native SDK 静止状态与内存命令接收 |
-| `entry_onboard_a3_real_readonly.yaml` | 真实 AimRT 状态，只读计算 |
-| `entry_onboard_a3_real.yaml` | 真实 AimRT 状态与命令发布 |
-| `entry_onboard_upper_stream_readonly.yaml` / `entry_onboard_upper_stream.yaml` | 只读 / 命令模式，实时上肢 |
+| `examples/entry_mock.yaml` / `examples/entry_sim.yaml` | 双关节 mock / MuJoCo |
+| `a3/mock/entry_a3_operator.yaml` | A3 通用状态和固定上肢，内存后端 |
+| `a3/mock/entry_a3_operator_stream.yaml` | A3 通用状态和实时上肢，内存后端 |
+| `a3/mock/entry_sdk_mock.yaml` | native SDK 静止状态与内存命令接收 |
+| `a3/onboard/entry_onboard_a3_real_readonly.yaml` | 真实 AimRT 状态，只读计算 |
+| `a3/onboard/entry_onboard_a3_real.yaml` | 真实 AimRT 状态与命令发布 |
+| `a3/onboard/entry_onboard_upper_stream_readonly.yaml` / `a3/onboard/entry_onboard_upper_stream.yaml` | 只读 / 命令模式，实时上肢 |
 
 A3 operator 入口从 damping 启动，注册 passive=0、damping=1、fixedpos=2、loco=3。
 先请求 fixedpos，再请求 loco；实际切换仍受状态进入条件和安全监督控制。
@@ -35,7 +35,7 @@ A3 operator 入口从 damping 启动，注册 passive=0、damping=1、fixedpos=2
 
 ```bash
 ./scripts/bootstrap.sh --extra a3 --extra inference
-./scripts/run.sh --config configs/entry/entry_sdk_mock.yaml
+./scripts/run.sh --config configs/entry/a3/mock/entry_sdk_mock.yaml
 ```
 
 `a3` 安装并构建 SDK，`inference` 用于注册表中的 loco 模型；即使从 damping 启动，加载时也会检查该模型。
@@ -52,9 +52,9 @@ SDK mock 显式设置 `transport: sdk_mock`、`read_only: false`、`command_publ
 通信参数位于 [A3 后端配置](../configs/backends/a3_readonly.yaml) 和 [AimRT 配置](../configs/aimrt/aimrt_iceoryx.yaml)。
 
 ```bash
-./scripts/run.sh --config configs/entry/entry_onboard_a3_real_readonly.yaml
+./scripts/run.sh --config configs/entry/a3/onboard/entry_onboard_a3_real_readonly.yaml
 # 结束只读进程后，再启动唯一的命令进程
-A3_CONFIRM_ONBOARD=YES ./scripts/run.sh --config configs/entry/entry_onboard_a3_real.yaml
+A3_CONFIRM_ONBOARD=YES ./scripts/run.sh --config configs/entry/a3/onboard/entry_onboard_a3_real.yaml
 ```
 
 只读模式读取真实状态并进行 shadow 计算，不调用 SDK 命令写入。其状态变化不代表机器人执行，

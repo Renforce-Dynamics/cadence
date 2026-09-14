@@ -11,13 +11,13 @@ from planet_protocol.operator import JoystickCommandPacket, decode_joystick_comm
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTRY = ROOT / 'configs/entry/entry_joystick.yaml'
+ENTRY = ROOT / 'configs/entry/joystick/entry_joystick.yaml'
 
 
 @pytest.mark.parametrize('runtime_entry', ['entry_a3_operator.yaml', 'entry_a3_operator_stream.yaml'])
 def test_companion_bindings_match_selected_catalog_without_planetj(runtime_entry):
     producer = load_config(ENTRY)
-    runtime = load_config(ROOT / 'configs/entry' / runtime_entry)
+    runtime = load_config(ROOT / 'configs/entry/a3/mock' / runtime_entry)
     catalog = PluginCatalog(load_config(runtime.path('runtime.state_registry_config')).data)
     requests = producer.data['inputs']['requests']
     bindings = [(mapping['request_id'], name) for name, mapping in requests.items()]
@@ -53,7 +53,7 @@ def test_planetj_axes_and_signals_reach_cadence_interpretation():
     from planetj.runtime import map_operator_input
 
     producer = config_module.load_config(ENTRY)
-    runtime = load_config(ROOT / 'configs/entry/entry_a3_operator.yaml')
+    runtime = load_config(ROOT / 'configs/entry/a3/mock/entry_a3_operator.yaml')
     mapping = OperatorInputMapping.from_mapping(runtime.data['runtime']['operator']['mapping'])
     # Full left stick forward/right and right stick right; normalized once in PlanetJ.
     command = map_operator_input(True, [False] * 11, [1, -1, 0, 1, 0, 0, 0, 0], producer.inputs)

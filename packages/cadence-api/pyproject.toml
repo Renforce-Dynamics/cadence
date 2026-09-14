@@ -17,8 +17,11 @@ dependencies = ["numpy>=1.24"]
 where = ["src"]
 include = ["cadence_api*"]
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.package-data]
-"*" = ["**/*.yaml", "**/*.json", "**/*.xml", "**/*.STL", "**/*.stl", "**/*.onnx", "**/*.npz", "**/*.hex", "**/*.md", "**/*.lock", "**/LICENSE"]
+"*" = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,10 @@
+extends:
+- ../../../runtime/control.yaml
+- ../../../robots/a3.yaml
+- ../../../backends/a3_readonly.yaml
+- ../../../inputs/operator.yaml
+- ../../../inputs/upper_targets.yaml
+runtime:
+  state_registry_config: ../../../state_registries/a3_operator_stream.yaml
+  start_state: damping
+  duration_s: 0

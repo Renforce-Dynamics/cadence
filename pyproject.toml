@@ -20,8 +20,11 @@ cadence = "cadence.cli:main"
 where = ["src"]
 include = ["cadence*"]
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.package-data]
-"*" = ["**/*.json", "**/*.xml", "**/*.STL", "**/*.stl", "**/*.onnx", "**/*.npz", "**/*.hex", "**/*.md", "**/*.lock", "**/LICENSE"]
+"*" = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

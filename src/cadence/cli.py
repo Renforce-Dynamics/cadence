@@ -18,7 +18,7 @@ def main(argv=None):
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("run", "deploy"):
         run = sub.add_parser(name)
-        run.add_argument("--config", required=True, help="Entry YAML file, e.g. configs/entry/entry_sim.yaml")
+        run.add_argument("--config", required=True, help="Entry YAML file, e.g. configs/entry/examples/entry_sim.yaml")
         run.add_argument("--output", help="Snapshot directory (defaults to runs/deploy-*)")
         run.add_argument("--check", action="store_true", help="Validate the deployment and load models without opening inputs or RobotIO")
     config = sub.add_parser("config")
