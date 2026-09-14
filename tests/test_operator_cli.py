@@ -1,6 +1,7 @@
 """Exercise the standalone CLI through real operator and upper-target UDP ports."""
 
 import socket
+from pathlib import Path
 import threading
 import time
 
@@ -70,14 +71,23 @@ def test_cli_operator_requests_queries_and_stream_holding(tmp_path, monkeypatch)
     monkeypatch.setattr(mock_module, "MockBackend", IdealTrackingMock)
     monkeypatch.setattr(operator_module, "JoystickCommandReceiver", ReadyReceiver)
     monkeypatch.setattr(runtime_module, "RuntimeKernel", ObservedKernel)
+    configs = Path(__file__).resolve().parents[1] / "configs"
+    (tmp_path / "fixed.yaml").write_text(yaml.safe_dump({
+        "extends": str(configs / "states/a3_fixedpos.yaml"), "duration_s": .1,
+    }))
+    (tmp_path / "registry.yaml").write_text(yaml.safe_dump({
+        "extends": str(configs / "state_registries/a3_operator_stream.yaml"),
+        "states": {2: {"config": "fixed.yaml"}},
+    }))
     config = tmp_path / "operator.yaml"
     config.write_text(yaml.safe_dump({
-        "extends": "pkg://cadence/data/a3_operator_stream_demo.yaml",
+        "extends": str(configs / "entry/entry_a3_operator_stream.yaml"),
         "runtime": {
+            "duration_s": 1.5,
+            "state_registry_config": "registry.yaml",
             "operator": {"port": operator_port},
             "upper_target_udp": {"port": upper_port},
         },
-        "catalog": {"states": {2: {"config": {"duration_s": 0.1}}}},
     }))
 
     def exercise():
@@ -160,7 +170,7 @@ def test_cli_operator_requests_queries_and_stream_holding(tmp_path, monkeypatch)
 
     worker = threading.Thread(target=exercise, daemon=True)
     worker.start()
-    result = run_config(config, duration=1.5)
+    result = run_config(config)
     worker.join(1)
     assert not worker.is_alive()
     if failures:

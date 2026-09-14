@@ -1,0 +1,34 @@
+# Companion producer configuration for a3_operator.yaml and a3_operator_stream.yaml.
+# PlanetJoystick runs separately; Cadence does not install or import it.
+version: 4
+device: /dev/input/js0
+target:
+  host: 127.0.0.1
+  port: 50560
+publisher:
+  hz: 50
+  ttl_ms: 100
+
+# Linux xpad: A=0 B=1 X=2 Y=3 LB=4 RB=5 View=6 Menu=7
+# Xbox/Home=8 LS=9 RS=10. Axes: LX=0 LY=1 LT=2 RX=3 RY=4 RT=5 DX=6 DY=7.
+# These axes are normalized inputs; configs/inputs/operator.yaml owns robot speeds.
+inputs:
+  axes:
+    left_x: {index: 0, scale: 1.0, deadzone: 0.12}
+    left_y: {index: 1, scale: -1.0, deadzone: 0.12}
+    right_x: {index: 3, scale: 1.0, deadzone: 0.12}
+    right_y: {index: 4, scale: -1.0, deadzone: 0.12}
+    left_trigger: {index: 2, scale: 1.0, deadzone: 0.02}
+    right_trigger: {index: 5, scale: 1.0, deadzone: 0.02}
+  dpad:
+    x: {index: 6, scale: 1.0, threshold: 0.5}
+    y: {index: 7, scale: -1.0, threshold: 0.5}
+  # Names and IDs match the selected runtime catalog; debug labels are not selectors.
+  requests:
+    passive: {buttons: [5, 9], request_id: 0}
+    damping: {buttons: [5, 1], request_id: 1}
+    fixedpos: {buttons: [5, 0], request_id: 2}
+    loco: {buttons: [5, 2], request_id: 3}
+  signals:
+    - {buttons: [8], signal_id: 0, debug_name: EMERGENCY_HALT, hold_after_release_ms: 500}
+    - {buttons: [5, 7], signal_id: 1, debug_name: RESET_SAFETY}

@@ -253,7 +253,8 @@ def run_config(path, *, output=None, check=False):
     dt = 1 / plan.control_hz
     hardware = cfg["backend"]["kind"] == "a3"
     shadow = bool(getattr(backend, "read_only", False))
-    realtime = hardware or plan.duration_s == 0 or any((plan.operator, plan.localization, plan.upper))
+    realtime = (hardware or plan.duration_s == 0 or any((plan.operator, plan.localization, plan.upper))
+                or (cfg["backend"]["kind"] == "mujoco" and not cfg["runtime"].get("headless", True)))
     ticks = writes = shadow_steps = stale_skips = state_timeouts = 0
     failure = None
     kernel = receiver = operator = localization = viewer = None

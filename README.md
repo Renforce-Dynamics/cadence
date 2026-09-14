@@ -1,63 +1,51 @@
 # cadence
 
-机器人执行与仿真运行时：通用状态机、下肢 locomotion、上肢姿态与关节目标流。任务状态由应用扩展。
+机器人执行与仿真运行时：通用状态机、下肢 locomotion、固定上肢姿态和实时关节目标。
 
-## 安装
-
-Linux、Python 3.10+、`uv`；A3 原生库还需 CMake 和 C++ 编译器。
+Linux、Python 3.10+、`uv`；A3 原生库构建需要 CMake 和 C++ 编译器。
 
 ```bash
 git clone --recurse-submodules git@github.com:Renforce-Dynamics/cadence.git
 cd cadence
-./scripts/bootstrap.sh --extra a3 --extra inference
+./scripts/bootstrap.sh --extra sim --extra inference --extra a3
 ```
 
-## A3 上机
-
-先按 [A3 操作教程](docs/a3-onboard.md) 完成 AimRT 构建、PM 服务交接和 HAL 启动，再在机器人上运行：
+运行仿真：
 
 ```bash
-# 接收真实状态，不发布命令
-./scripts/deploy.sh --config pkg://cadence/data/deployment/a3_readonly.yaml
-
-# 正式控制；结束上一进程后执行
-A3_CONFIRM_ONBOARD=YES ./scripts/deploy.sh \
-  --config pkg://cadence/data/deployment/a3_command.yaml
+./scripts/run.sh --config configs/entry/entry_sim.yaml
 ```
 
-使用现场配置：`./scripts/deploy.sh --config ./site.yaml --output ./runs/session`。
-`deploy.sh` 在当前机器启动 runtime，并保存配置快照。同步源码、安装依赖在启动前完成。
-
-## 操作与上肢
-
-在已安装 [PlanetJoystick](https://github.com/Renforce-Dynamics/planetJoystick) 的控制机运行：
+A3 上机先完成 [环境、AimRT 构建和 HAL/PM 交接](docs/a3-onboard.md)，再依次运行只读验证与正式控制：
 
 ```bash
-planetj --config pkg://planetj/data/operator.yaml --check-remote
-planetj --config pkg://planetj/data/operator.yaml
+./scripts/run.sh --config configs/entry/entry_onboard_a3_real_readonly.yaml
+# 结束只读进程后启动命令模式
+A3_CONFIRM_ONBOARD=YES ./scripts/run.sh --config configs/entry/entry_onboard_a3_real.yaml
 ```
 
-默认状态：`passive=0`、`damping=1`、`fixedpos=2`、`loco=3`。先 RB+A 到 fixedpos，再 RB+X 到 loco。跨机器时按教程配置接收地址和发送目标。
+运行方式由配置决定；修改后端、时长、初始状态、网络和上肢姿态，都修改所选入口的配置链。
 
-| 通用状态 | 上肢行为 |
-| --- | --- |
-| `LowerLocoState` | 执行配置中的固定关节姿态 |
-| `LowerLocoStreamState` | 进入时使用默认姿态，随后执行最新关节角度；断流保持最新命令 |
-
-上肢角度单位为弧度。配置及发送示例见 [运动组合](docs/motion-composition.md)；定位输入见 [外部定位](docs/localization.md)。
-
-## 常用命令
-
-```bash
-.venv/bin/cadence config resolve ./site.yaml --output ./runs/config
-./scripts/doctor.sh
-./scripts/test.sh
-./scripts/build.sh
-./scripts/submodules.sh check
+```text
+configs/
+├── entry/             # 本次运行入口 entry_*.yaml
+├── robots/            # 关节名称、顺序和限位
+├── backends/          # mock、MuJoCo、A3 只读或命令
+├── state_registries/  # 状态 ID、工厂和状态配置引用
+├── states/            # PD、下肢模型和上肢姿态
+├── inputs/            # operator、上肢目标、外部定位
+├── operators/         # 与状态注册表匹配的手柄发送配置
+├── runtime/           # 控制频率、时长和窗口设置
+└── aimrt/             # 硬件通信配置
 ```
 
-[文档索引](docs/README.md) · [配置](docs/configuration.md) · [部署参数](docs/deployment.md) · [架构](docs/architecture.md)
+A3 operator 默认状态为 `passive=0`、`damping=1`、`fixedpos=2`、`loco=3`。固定上肢持续使用配置姿态；流式上肢进入时采用默认姿态，此后保持最新关节目标，断流也保持。角度单位为弧度。
 
-共享配置与协议来自 [planetConfig](https://github.com/Renforce-Dynamics/planetConfig)，A3 I/O 来自 [agi3sdk](https://github.com/Renforce-Dynamics/agi3sdk)；乒乓球状态在 [cadence-rally](https://github.com/Renforce-Dynamics/cadence-rally)。
+手柄是独立进程，使用本仓库配套入口：`planetj --config configs/entry/entry_joystick.yaml`。
+PlanetJoystick 在发送端单独安装；Cadence 不安装它。运行时和手柄各用自己的 entry，配套命令和键位见 [CMD.md](CMD.md)。
+
+[命令与入口选择](CMD.md) · [A3 上机教程](docs/a3-onboard.md) · [配置](docs/configuration.md) · [运动组合](docs/motion-composition.md) · [全部文档](docs/README.md)
+
+共享配置与协议来自 [planetConfig](https://github.com/Renforce-Dynamics/planetConfig)，A3 I/O 来自 [agi3sdk](https://github.com/Renforce-Dynamics/agi3sdk)；乒乓球状态由 [cadence-rally](https://github.com/Renforce-Dynamics/cadence-rally) 扩展。
 
 Renforce Dynamics · [作者](AUTHORS.md) · [MIT](LICENSE)

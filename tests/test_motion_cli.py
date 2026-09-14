@@ -1,6 +1,7 @@
 """Installed-resource and actual UDP-to-command coverage for the generic runner."""
 
 import json
+from pathlib import Path
 import socket
 
 import numpy as np
@@ -10,17 +11,24 @@ import yaml
 from cadence.cli import load_run_config, run_config
 from cadence_config import load_config, resolve_resource
 
+CONFIGS = Path(__file__).resolve().parents[1] / "configs"
+
 
 def test_state_resource_inheritance_and_declaration_relative_model(tmp_path, monkeypatch):
-    state = load_config("pkg://cadence/data/motion/a3_lower.yaml").data
+    state = load_config(CONFIGS / "states/a3_lower.yaml").data
     model = tmp_path / "actor.onnx"
     model.symlink_to(resolve_resource(state["lower"]["model"]))
     state["lower"]["model"] = "actor.onnx"
     (tmp_path / "state.yaml").write_text(yaml.safe_dump(state))
+    registry = tmp_path / "registry.yaml"
+    registry.write_text(yaml.safe_dump({
+        "extends": str(CONFIGS / "state_registries/a3_lower.yaml"),
+        "states": {3: {"config": "state.yaml"}},
+    }))
     config = tmp_path / "run.yaml"
     config.write_text(yaml.safe_dump({
-        "extends": "pkg://cadence/data/a3_lower_demo.yaml",
-        "catalog": {"states": {3: {"config": "state.yaml"}}},
+        "extends": str(CONFIGS / "entry/entry_a3_lower.yaml"),
+        "runtime": {"state_registry_config": "registry.yaml"},
     }))
     monkeypatch.chdir(tmp_path.parent)
     resolved = load_run_config(config)
@@ -32,7 +40,10 @@ def test_state_resource_inheritance_and_declaration_relative_model(tmp_path, mon
 
 def test_real_actor_runs_without_task_packages(tmp_path, capsys):
     pytest.importorskip("onnxruntime")
-    assert run_config("pkg://cadence/data/a3_lower_demo.yaml", duration=.1, output=tmp_path) == 0
+    entry = tmp_path / "entry_actor.yaml"
+    entry.write_text(yaml.safe_dump({"extends": str(CONFIGS / "entry/entry_a3_lower.yaml"),
+                                     "runtime": {"duration_s": .1}}))
+    assert run_config(entry, output=tmp_path) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["ticks"] == 5 and result["mode"] == "loco" and not result["halted"]
     frozen = yaml.safe_load((tmp_path / "resolved.yaml").read_text())
@@ -47,7 +58,7 @@ def test_udp_latest_command_survives_sender_disconnect(tmp_path, monkeypatch):
     receivers, commands = [], []
     original_start = JointTargetUdpReceiver.start
     original_write = MockBackend.write_command
-    posture = np.asarray(load_config("pkg://cadence/data/motion/a3_lower.yaml").data["upper"]["default_position"])
+    posture = np.asarray(load_config(CONFIGS / "states/a3_lower.yaml").data["upper"]["default_position"])
     latest = posture.copy()
     latest[0] += .15
 
@@ -77,8 +88,8 @@ def test_udp_latest_command_survives_sender_disconnect(tmp_path, monkeypatch):
     monkeypatch.setattr(JointTargetUdpReceiver, "start", start)
     monkeypatch.setattr(MockBackend, "write_command", write)
     config = tmp_path / "stream.yaml"
-    config.write_text("extends: pkg://cadence/data/a3_lower_stream_demo.yaml\nruntime:\n  upper_target_udp: {port: 0}\n")
-    assert run_config(config, duration=.12) == 0
+    config.write_text(f"extends: {CONFIGS / 'entry/entry_a3_lower_stream.yaml'}\nruntime:\n  duration_s: 0.12\n  upper_target_udp: {{port: 0}}\n")
+    assert run_config(config) == 0
     np.testing.assert_allclose(commands[0][15:], posture)
     assert len(commands) == 6
     for command in commands[1:]:
@@ -99,9 +110,9 @@ def test_udp_binding_rejects_fixed_state_and_closes_backend(tmp_path, monkeypatc
 
     monkeypatch.setattr(MockBackend, "close", close)
     config = tmp_path / "invalid.yaml"
-    config.write_text("extends: pkg://cadence/data/a3_lower_demo.yaml\nruntime:\n  upper_target_udp: {state: loco, host: 127.0.0.1, port: 0}\n")
+    config.write_text(f"extends: {CONFIGS / 'entry/entry_a3_lower.yaml'}\nruntime:\n  upper_target_udp: {{state: loco, host: 127.0.0.1, port: 0}}\n")
     with pytest.raises(ValueError, match="streamed"):
-        run_config(config, duration=.1)
+        run_config(config)
     assert closed == [True]
 
 
@@ -131,11 +142,11 @@ def test_operator_cleanup_failure_still_exits_state_and_closes_backend(tmp_path,
     monkeypatch.setattr(MockBackend, "close", close_backend)
     config = tmp_path / "operator.yaml"
     config.write_text(yaml.safe_dump({
-        "extends": ["pkg://cadence/data/demo.yaml", "pkg://cadence/data/operator.yaml"],
-        "runtime": {"operator": {"port": 0}},
+        "extends": [str(CONFIGS / "entry/entry_mock.yaml"), str(CONFIGS / "inputs/operator.yaml")],
+        "runtime": {"operator": {"port": 0}, "duration_s": .02},
     }))
     with pytest.raises(RuntimeError, match="operator cleanup failed"):
-        run_config(config, duration=.02)
+        run_config(config)
     assert cleanup == ["operator", "state", "backend"]
 
 
@@ -149,6 +160,6 @@ def test_nonfinite_timing_rejected_before_backend_start(tmp_path, monkeypatch, f
 
     monkeypatch.setattr(MockBackend, "start", unexpected_start)
     config = tmp_path / "invalid.yaml"
-    config.write_text(f"extends: pkg://cadence/data/demo.yaml\nruntime:\n  {field}: {value}\n")
+    config.write_text(f"extends: {CONFIGS / 'entry/entry_mock.yaml'}\nruntime:\n  {field}: {value}\n")
     with pytest.raises(ValueError, match="finite"):
         run_config(config)

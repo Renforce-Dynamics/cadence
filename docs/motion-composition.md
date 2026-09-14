@@ -4,8 +4,8 @@ Cadence 提供两个可跨任务复用的运动状态：下肢策略持续控制
 
 | 状态工厂 | 上肢行为 | 默认配置 |
 | --- | --- | --- |
-| `cadence.motion:LowerLocoState` | 整个激活期间保持配置姿态 | `pkg://cadence/data/motion/a3_lower.yaml` |
-| `cadence.motion:LowerLocoStreamState` | 进入时采用配置姿态，随后执行并保持最新关节目标 | `pkg://cadence/data/motion/a3_lower_stream.yaml` |
+| `cadence.motion:LowerLocoState` | 整个激活期间保持配置姿态 | `configs/states/a3_lower.yaml` |
+| `cadence.motion:LowerLocoStreamState` | 进入时采用配置姿态，随后执行并保持最新关节目标 | `configs/states/a3_lower_stream.yaml` |
 
 实时输入是**关节角度，单位 rad**。上游可以是动作生成器、遥操作或运动学模块；若上游产生末端位姿，应先由上游求解成关节角度。状态将关节目标写入 `q_des`，使用配置中的 `kp`、`kd`，`dq_des` 与 `tau_ff` 为零。
 
@@ -15,24 +15,24 @@ Cadence 提供两个可跨任务复用的运动状态：下肢策略持续控制
 
 ```bash
 ./scripts/bootstrap.sh --extra inference
-.venv/bin/cadence run --config pkg://cadence/data/a3_lower_demo.yaml --duration-s 1
+./scripts/run.sh --config configs/entry/entry_a3_lower.yaml
 ```
 
 该示例运行真实 A3 ONNX 策略，使用内存 mock backend；它验证推理和命令执行链，不模拟接触动力学。运行摘要中的 `dimension` 为 29，`mode` 为 `loco`。Cadence 自带独立 A3 readonly、命令和 native SDK mock 部署配置，见 [部署指南](deployment.md)；MuJoCo 的机器人场景由部署配置选择。
 
-实时上肢示例在本地端口 `15100` 接收目标：
+实时上肢入口在本地端口 `15100` 接收目标。将该入口的 `runtime.duration_s` 设为 `0` 以持续运行：
 
 ```bash
-.venv/bin/cadence run --config pkg://cadence/data/a3_lower_stream_demo.yaml --duration-s 0
+./scripts/run.sh --config configs/entry/entry_a3_lower_stream.yaml
 ```
 
 在另一终端发送 14 个双臂关节角度：
 
 ```bash
-python scripts/send-upper-target.py --port 15100 --status
-python scripts/send-upper-target.py --port 15100 --sequence 0 --q-des \
+python3 scripts/send-upper-target.py --port 15100 --status
+python3 scripts/send-upper-target.py --port 15100 --sequence 0 --q-des \
   0.25 0.10 0 0.90 0 0 0  0.25 -0.10 0 0.90 0 0 0
-python scripts/send-upper-target.py --port 15100 --sequence 1 --q-des \
+python3 scripts/send-upper-target.py --port 15100 --sequence 1 --q-des \
   0.30 0.12 0 0.80 0 0 0  0.30 -0.12 0 0.80 0 0 0
 ```
 
@@ -42,63 +42,58 @@ python scripts/send-upper-target.py --port 15100 --sequence 1 --q-des \
 
 连续发送示例由 [planetJoystick](https://github.com/Renforce-Dynamics/planetJoystick/tree/main/examples/upper_stream) 维护，使用 planetConfig 定义的共享协议。本配套部署由 Cadence 接收：operator 进程发送状态请求、轴和安全信号；独立的 `planetj-upper` 进程发送关节目标。PlanetJoystick 不依赖 Cadence 或 SDK，Cadence 持有本部署的状态机、下肢模型、PD 增益和提交边界。
 
+在 Cadence 仓库运行：
+
 ```bash
-# Cadence 环境：默认从 damping 启动
-cadence run --config pkg://cadence/data/a3_operator_stream_demo.yaml
-# PlanetJoystick 环境：查询绑定，再运行手柄输入
-planetj --config pkg://planetj/data/operator.yaml --check-remote
-planetj --config pkg://planetj/data/operator.yaml
-# 第三个终端：默认采集实体手柄；也可显式选择 --source sine 或 scripted
-planetj-upper --config pkg://planetj/data/upper_stream.yaml
+./scripts/run.sh --config configs/entry/entry_a3_operator_stream.yaml
 ```
+
+在已安装 PlanetJoystick 的环境中，从 Cadence 仓库启动配套手柄进程：
+
+```bash
+planetj --config configs/entry/entry_joystick.yaml
+```
+
+上肢生产者使用自己的配置，在另一个终端从 PlanetJoystick 仓库启动：
+
+```bash
+./scripts/upper-stream.sh -- --config examples/upper_stream/config.yaml
+```
+
+启动前可为手柄命令加 `--check-remote` 检查状态 ID 和 key。上肢生产者默认采集实体手柄，
+其配置决定目标与动作来源；两进程各自使用独立的配置文件。
 
 使用 RB+A 请求 fixedpos，随后 RB+X 请求 loco。上肢发送端只发现 activation 和发布帧，不触发状态切换。实体手柄断开后停止发布，不发送默认姿态；重新连接同一 activation 时继续递增序号。新任务直接继承这些接口和配置，无需依赖 rally。
 
 ## 默认姿态与配置继承
 
-任务只需覆盖上肢姿态，不需要复制机器人契约和模型：
+固定姿态直接修改 `configs/states/a3_lower.yaml` 的 `upper.default_position`。
+实时状态使用 `configs/states/a3_lower_stream.yaml`，可以在该文件覆盖同一字段：
 
 ```yaml
-# my_lower.yaml：可作为 registry 中一个状态的 config
-extends: pkg://cadence/data/motion/a3_lower.yaml
+# configs/states/a3_lower_stream.yaml
+extends: a3_lower.yaml
 upper:
   default_position: [0.25, 0.10, 0, 0.90, 0, 0, 0, 0.25, -0.10, 0, 0.90, 0, 0, 0]
 ```
 
-固定姿态状态在进入后持续使用该配置值。实时状态可继承 `a3_lower_stream.yaml` 设置同一字段：每次进入都重新采用默认姿态，之后只按收到的新帧更新目标。默认配置不会按控制周期重新覆盖上肢目标。
+固定状态持续使用配置值；实时状态每次进入时采用默认姿态，随后只按新帧更新目标。
+默认配置不会按控制周期重新覆盖上肢目标。
 
-单独运行时，以下配置将自定义状态文件接到示例 registry；两个文件放在同一目录：
-
-```yaml
-# run.yaml
-extends: pkg://cadence/data/a3_lower_demo.yaml
-runtime:
-  velocity_command: [0.0, 0.0, 0.0]  # vx m/s、vy m/s、yaw rad/s
-catalog:
-  states:
-    3:
-      config: my_lower.yaml
-```
-
-```bash
-.venv/bin/cadence run --config run.yaml --duration-s 1
-.venv/bin/cadence config resolve my_lower.yaml --output runs/motion-config
-```
-
-要在自定义运行配置启用实时输入，选择实时状态工厂并显式配置接收端：
+入口通过 `runtime.state_registry_config` 选择注册表。例如
+`configs/state_registries/a3_lower_stream.yaml`：
 
 ```yaml
-extends: pkg://cadence/data/a3_lower_stream_demo.yaml
-runtime:
-  upper_target_udp:
-    state: loco
-    host: 127.0.0.1
-    port: 15100
-catalog:
-  states:
-    3:
-      config: my_lower.yaml
+extends: a3_lower.yaml
+states:
+  3:
+    factory: cadence.motion:LowerLocoStreamState
+    config: ../states/a3_lower_stream.yaml
 ```
+
+注册表继承固定状态的 key 和安全目的状态，替换 loco 工厂与状态文件。
+入口同时引用 `configs/inputs/upper_targets.yaml` 来启用实时接收。
+这些相对路径按各自声明文件解析；任务可以通过 submodule 继承同一份状态配置，见 [配置约定](configuration.md)。
 
 两个状态使用相同的配置 schema；实时或固定行为由 `factory` 选择。YAML 的 `extends` 负责配置值继承，registry 的 `factory` 负责实现选择，运行时激活负责控制生命周期。
 
@@ -110,7 +105,7 @@ catalog:
 | `robot.lower_joints` / `upper_joints` | 不重叠且覆盖全身的控制分区 |
 | `control.kp` / `kd` | 所有受控关节的 PD 增益，可为向量或统一标量 |
 | `lower.factory` | 模型适配器；默认 `cadence.motion.a3:A3LowerPolicy` |
-| `lower.model` | 默认 `pkg://cadence/data/models/a3_loco_lower.onnx` |
+| `lower.model` | 下肢 ONNX 模型路径，默认引用 Cadence 安装包中的 A3 模型 |
 | `lower.history_frames` | A3 H4 模型固定为 4 |
 | `lower.mask_upper_observation` | 是否将观测中的上肢归零到训练参考姿态；A3 默认配置为 `false` |
 | `upper.default_position` | 上肢控制目标，顺序遵循 `robot.upper_joints` |

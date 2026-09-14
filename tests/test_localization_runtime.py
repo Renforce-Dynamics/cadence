@@ -200,7 +200,7 @@ def test_sender_requires_explicit_pose_and_continuous_timing(arguments):
 def test_packaged_config_layer_enables_explicit_matched_localization():
     from cadence_config import load_config
 
-    resolved = load_config("pkg://cadence/data/localization.yaml")
+    resolved = load_config(Path(__file__).resolve().parents[1] / "configs/inputs/localization.yaml")
     cfg = LocalizationIngressConfig.from_mapping(resolved.data["runtime"]["localization"])
     assert cfg.host == "127.0.0.1" and cfg.source == "localization"
     assert cfg.max_age_s == 0.25 and cfg.max_datagrams_per_poll == 64

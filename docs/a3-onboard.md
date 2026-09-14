@@ -10,9 +10,8 @@ agi3sdk 负责 AimRT 状态和命令接口；厂商 HAL 与 `agibot_pm` 由现�
 
 ## 1. 板端源码与 Python 环境
 
-当前 `scripts/deploy.sh` 是**本机配置快照与运行入口**，不会 SSH 同步、安装远端软件，
-也不管理 HAL 或 PM。旧 `agi3dep/scripts/onboard/deploy_to_a3.sh` 的远端部署工具没有
-迁入本仓库；下面直接在目标机安装。不要把控制机的 x86 虚拟环境或共享库复制到 A3 使用。
+`scripts/run.sh` 在当前机器加载所选配置、启动 runtime 并保存快照。源码与依赖在目标机安装，
+HAL 和 PM 由现场管理。不要把控制机的 x86 虚拟环境或共享库复制到 A3 使用。
 
 板端需要 aarch64 Linux、Python 3.10+、`uv`、Git、CMake 3.20+ 和支持 C++20 的编译器。
 由有部署目录写权限的账号执行：
@@ -94,40 +93,34 @@ ldd /opt/agibot/bin/libaimrt_iceoryx_plugin.so
 ```
 
 `ldd` 不应出现 `not found`。默认 AimRT 配置中的插件路径就是上面的 `/opt/agibot/bin`；
-若现场不同，复制 [AimRT 配置](../src/cadence/data/aimrt/aimrt_iceoryx.yaml) 到部署目录修改，
-再通过 `backend.aimrt.config_path` 指向该文件。不要只改 SDK 库路径而遗漏插件依赖。
+若现场不同，修改根目录的 [AimRT 配置](../configs/aimrt/aimrt_iceoryx.yaml)；
+后端通过 `backend.aimrt.config_path` 引用它。SDK 共享库和插件依赖需要同时正确配置。
 构建选项和 ABI 细节见 [SDK 文档](https://github.com/Renforce-Dynamics/agi3sdk/blob/main/native/README.md)。
 
 ## 3. 准备本次运行配置
 
-在 `/agibot/cadence` 下创建独立配置。示例允许控制机经 UDP 50560 接入；也可以将
-`host` 改为 MDU 实际网卡地址。本机输入使用 `127.0.0.1`：
+直接使用根目录中的现有入口：
+
+- 只读：`configs/entry/entry_onboard_a3_real_readonly.yaml`。
+- 命令：`configs/entry/entry_onboard_a3_real.yaml`。
+
+跨机器使用手柄时，将 [operator 配置](../configs/inputs/operator.yaml) 的
+`runtime.operator.host` 改为 MDU 实际网卡地址或 `0.0.0.0`，端口默认 `50560`。
+仅接收本机输入时保留 `127.0.0.1`。运行时长在入口中设置 `runtime.duration_s`：
+只读验证可设为 `5` 秒，持续操作使用 `0`。后端、注册表、模型和网络都由这条配置链选择。
 
 ```bash
 cd /agibot/cadence
-mkdir -p deployment
-cat > deployment/a3-readonly.yaml <<'YAML'
-extends: pkg://cadence/data/deployment/a3_readonly.yaml
-runtime:
-  operator:
-    host: 0.0.0.0
-    port: 50560
-YAML
-cat > deployment/a3-command.yaml <<'YAML'
-extends: a3-readonly.yaml
-backend:
-  read_only: false
-  command_publish_enabled: true
-YAML
-./scripts/deploy.sh --config deployment/a3-readonly.yaml --check
-./scripts/deploy.sh --config deployment/a3-command.yaml --check
+./scripts/run.sh --config configs/entry/entry_onboard_a3_real_readonly.yaml --check
+./scripts/run.sh --config configs/entry/entry_onboard_a3_real.yaml --check
 ```
 
-`--check` 加载配置与模型，但不连接 AimRT、不检查 HAL 是否在线。部署快照默认保存在
-`runs/deploy-*`，包括解析后的配置、来源和覆盖值。配置机制详见 [独立部署](deployment.md)。
+`--check` 加载配置与模型，不连接 AimRT、不检查 HAL 是否在线，也不要求命令发布确认。
+运行快照默认保存在 `runs/deploy-*`；可用 `--output` 指定目录。现场需保留独立版本时，
+在 `configs/entry/entry_site.yaml` 显式继承上述入口并覆盖差异，见 [配置约定](configuration.md)。
 
 每个新的 runtime 终端都需要重新加载第 2 节的厂商环境、ROS、消息库路径，并设置
-`AGI3SDK_LIBRARY`。`deploy.sh` 不会代替这些 shell 环境准备。
+`AGI3SDK_LIBRARY`。运行脚本沿用当前终端的环境。
 
 ## 4. 检查 PM，交接 HAL
 
@@ -184,37 +177,31 @@ runtime 验证。HAL 退出、状态缺失或设备报错时，先解决底层�
 
 ```bash
 cd /agibot/cadence
-./scripts/deploy.sh --config deployment/a3-readonly.yaml --duration-s 5
+./scripts/run.sh --config configs/entry/entry_onboard_a3_real_readonly.yaml
 ```
 
 只读模式接收真实状态并执行 shadow 计算，不创建硬件命令 publisher。检查退出时的摘要
 及本次 `runs/deploy-*/result.json`：`ticks > 0`、`failure: null`、`halted: false`、
 `command_writes: 0`，并有 `shadow_steps`。只读状态变化不代表机器人已经执行动作。
 
-控制机上的 PlanetJoystick 独立安装后，配置发送目标为 MDU 实际地址。例如：
-
-```yaml
-extends: pkg://planetj/data/operator.yaml
-target: {host: 192.168.120.121, port: 50560}
-```
-
-将它保存为控制机上的 `operator-a3.yaml`。若需要验证键位与 runtime catalog 的对应关系，
-让只读 runtime 用 `--duration-s 0` 持续运行，在控制机执行：
+在控制机的 Cadence checkout 中，将 `configs/operators/joystick.yaml` 的 `target.host` 改为
+MDU 实际地址，`target.port` 保持与 runtime 一致。只读 runtime 的 `runtime.duration_s`
+设为 `0` 时可以持续接收查询和输入。在已安装 PlanetJoystick 的环境中，从该 checkout 执行：
 
 ```bash
-planetj --config operator-a3.yaml --check-remote
-planetj --config operator-a3.yaml
+planetj --config configs/entry/entry_joystick.yaml --check-remote
+planetj --config configs/entry/entry_joystick.yaml
 ```
 
 关闭只读 runtime 后，再次确认支撑、急停、HAL 与进程状态，启动唯一的命令 runtime：
 
 ```bash
 cd /agibot/cadence
-A3_CONFIRM_ONBOARD=YES ./scripts/deploy.sh \
-  --config deployment/a3-command.yaml --duration-s 0
+A3_CONFIRM_ONBOARD=YES ./scripts/run.sh \
+  --config configs/entry/entry_onboard_a3_real.yaml
 ```
 
-默认从 `damping` 启动。通用 profile 的 IDs 为 passive=0、damping=1、fixedpos=2、loco=3；
+默认从 `damping` 启动。通用注册表的 IDs 为 passive=0、damping=1、fixedpos=2、loco=3；
 先请求 fixedpos（RB+A）确认姿态收敛，再请求 loco（RB+X）。DAMPING 为 RB+B。
 修改键位后以实际配置和 catalog 检查为准。通用 Cadence 不需要 `A3_CONFIRM_SERVE`；
 cadence-rally 的任务入口另有发球确认。确认变量只用于当前命令，不写入 shell profile。
@@ -267,4 +254,4 @@ systemctl status agibot_pm --no-pager
 
 六路输入是 waist、neck、arms、legs joint state，以及 pelvis、torso IMU；四路命令对应
 waist、neck、arms、legs。具体 topic 名和时效参数见
-[A3 readonly 后端配置](../src/cadence/data/backends/a3_readonly.yaml)。
+[A3 readonly 后端配置](../configs/backends/a3_readonly.yaml)。

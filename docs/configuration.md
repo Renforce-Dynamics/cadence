@@ -1,151 +1,132 @@
 # 配置约定
 
-`planet-config` 是独立 planetConfig 仓库提供的配置库，planetJoystick、planetRecord、planetRelay、planet-rally 与执行应用共同使用。Cadence 的 `cadence-config` 包仅保留 `cadence_config` 兼容导入，实际转发到 `planet_config`；Planet 系列直接依赖共享库，不安装 Cadence 或 SDK。配置加载不扫描相邻仓库。
-
-```yaml
-extends: pkg://cadence/data/demo.yaml
-compose:
-  robot: robot.yaml
-  backend: backend.yaml
-  task: task.yaml
-  site: site.yaml
-  experiment: experiment.yaml
-runtime:
-  duration_s: 5
-```
-
-合并顺序：`extends` 的顺序 → robot → backend → task → site → experiment → 当前文件 → CLI overrides。字典递归合并，列表整体替换。重复 YAML key、循环继承、不存在的资源、未知 override 字段都会报错。领域字段由组件自身的 schema 检查；`cadence config validate` 检查组合结构，`cadence deploy --check` 检查部署的状态、模型和后端配置而不开启 I/O。
+`configs/` 是运行配置的唯一来源，入口统一放在 `configs/entry/entry_*.yaml`。
+配置不随 Python 包分发；安装包保留代码与模型资源。启动时显式选择入口：
 
 ```bash
-cadence config resolve configs/demo.yaml --set runtime.duration_s=2 --output runs/config
-cadence config diff configs/demo.yaml other.yaml
+./scripts/run.sh --config configs/entry/entry_sim.yaml
 ```
 
-输出 `resolved.yaml`、`provenance.json`、`config.sha256`。普通相对资源路径通过 `ResolvedConfig.path("backend.model")` 相对于**声明该字段的 YAML**解析，继承不会改变来源。CLI 输入文件可以相对当前目录。
+后端、初始状态、运行时长、窗口、网络、注册表和上肢模型选择都由入口的配置链决定。
+运行命令只接收配置路径、快照目录和检查选项。
 
-资源支持：
+## 文件分工
 
-- `pkg://cadence/data/two_joint.xml`：安装包内的资源。
-- `artifact://policy`：通过显式 `artifacts={"policy": {"path": ..., "sha256": ...}}` 清单读取并验证内容。
-- 绝对路径或声明文件旁的相对路径。
+| 路径 | 内容 |
+| --- | --- |
+| `configs/entry/` | 每个进程各自的入口；runtime 组合机器人、后端、输入和状态注册表，joystick 引用发送配置 |
+| `configs/robots/` | 关节名称、顺序、限位 |
+| `configs/backends/` | mock、MuJoCo、A3 transport 与命令发布设置 |
+| `configs/state_registries/` | 状态 ID、key、factory、state config 与安全目的状态 |
+| `configs/states/` | 每个状态的姿态、增益、下肢模型和上肢默认值 |
+| `configs/inputs/` | operator、上肢目标和定位接收配置 |
+| `configs/operators/` | 与本仓库状态注册表匹配的手柄设备、键位、发送地址 |
+| `configs/runtime/` | 频率、控制期限、默认时长和窗口设置 |
+| `configs/aimrt/` | AimRT/Iceoryx 插件配置 |
 
-`cadence-rally` 兼容旧配置中明确的 `configs/`、`assets/`、`models/`、`contracts/` 前缀：它们相对于应用 bundle。新写的其他相对路径按声明来源解析。planet-rally 的旧配置也保留显式 bundle 引用，默认资源已随 wheel 分发。修改新应用的 bundle 通过 `CADENCE_RALLY_BUNDLE` 显式选择，不依赖运行目录。
-
-应用的 `artifacts.lock` 校验模型和机器人资产；`cadence-rally doctor` 和 profile 启动会校验清单。修改资产后显式执行 `cadence-rally lock` 更新。`--output` 保存配置、运行参数、版本和资产清单，运行参数覆盖记录在 `deployment.json`。
-
-Cadence 自己的 `cadence deploy` 与 `scripts/deploy.sh` 也提供独立部署及快照入口，默认输出到
-`runs/deploy-...`；可用 `--output` 指定目录、`--set dotted=value` 覆盖已有字段。
-模拟、A3 readonly 与命令部署都不要求引用 cadence-rally，见 [部署指南](deployment.md)。
-
-## 后端 overlay
-
-`pkg://cadence/data/backends/` 提供 `a3_readonly.yaml`、`a3_command.yaml` 和
-`a3_sdk_mock.yaml`。将后端层与通用状态配置组合，得到完整部署：
+例如 [A3 operator 入口](../configs/entry/entry_a3_operator.yaml) 组合通用基础配置，并选择独立注册表：
 
 ```yaml
 extends:
-  - pkg://cadence/data/a3_operator_demo.yaml
-  - pkg://cadence/data/backends/a3_readonly.yaml
+  - ../runtime/control.yaml
+  - ../robots/a3.yaml
+  - ../backends/mock.yaml
+  - ../inputs/operator.yaml
+runtime:
+  state_registry_config: ../state_registries/a3_operator.yaml
+  start_state: damping
+  duration_s: 0
+```
+
+注册表本身是 catalog mapping，不再嵌入入口。它也支持继承：
+
+```yaml
+# configs/state_registries/a3_lower.yaml
+extends: safety.yaml
+states:
+  3:
+    key: loco
+    factory: cadence.motion:LowerLocoState
+    config: ../states/a3_lower.yaml
+```
+
+`runtime.state_registry_config` 相对于声明它的文件解析，`states.<id>.config` 相对于声明该引用的注册表解析。
+被引用的状态文件继续按自己的来源解析模型路径。继承不会改变路径来源，运行目录不会改变这些引用。
+
+手柄进程单独使用 `planetj --config configs/entry/entry_joystick.yaml`，继承本仓库完整的
+`configs/operators/joystick.yaml`。它与 `a3_operator.yaml`、`a3_operator_stream.yaml` 均匹配
+`0 passive / 1 damping / 2 fixedpos / 3 loco`；归一化轴由手柄发送，速度比例由 runtime 的
+`configs/inputs/operator.yaml` 决定。两个进程各自选择 entry；保存配套配置不会增加 PlanetJoystick
+安装依赖或 submodule。键位与启动命令见 [CMD.md](../CMD.md#独立手柄进程)。
+
+## 修改与继承
+
+直接修改现有入口及其引用文件即可。需要保存现场版本时，在 `configs/entry/entry_site.yaml`
+引用既有入口，只写差异：
+
+```yaml
+extends: entry_onboard_a3_real_readonly.yaml
 runtime:
   duration_s: 5
-```
-
-完整入口也已提供在 `pkg://cadence/data/deployment/` 下。`backend.kind: a3` 的
-`transport` 必须显式为 `aimrt` 或 `sdk_mock`。AimRT readonly 配置
-`read_only: true`、`command_publish_enabled: false`；真实发布配置相反。
-`sdk_mock` 可用 `read_only: false` 验证内存写确认，但 `command_publish_enabled` 必须为
-false，且不能携带 AimRT 配置。
-
-`backend.aimrt.config_path` 和 `backend.library_path` 由组合配置按声明来源解析。
-前者默认引用 Cadence 包内的通用 Iceoryx 配置；SDK 控制 topic 名、同步偏差、状态等待超时、
-命令 watchdog 与 neck 保持增益在 `backend` 下明确配置。
-`backend.startup_timeout_s` 是首帧等待时长；`state_timeout_ms` 是后续状态等待与 SDK
-已交付快照的新鲜度限制。A3 关节顺序必须与规范关节名一致，不能通过改动列表重排 SDK 输出。
-
-
-## 配置与源码依赖
-
-planetConfig 独立维护 `planet-config` 和 `planet-protocol`。Cadence 与 Planet 系列各自固定共享仓库的源码版本，依赖方向指向 planetConfig。PlanetJoystick 使用两个共享包，PlanetRecord 与 PlanetRelay 使用配置包；它们不再包含 Cadence 或 SDK submodule，也没有对应的 Python 依赖。
-
-Cadence 的 `cadence-config`、`cadence-protocol` 是旧应用兼容层，不复制共享实现。Cadence 自身的 `external/agi3sdk` 提供可选 A3 backend，默认不会安装或编译 SDK。完整关系见 [架构与仓库职责](architecture.md)。
-
-`freeze()` 输出还包含 `overrides.json`。只有使用 `ResolvedConfig.path()` 的资源字段才按声明来源定位；录制输出目录保持相对进程工作目录的语义，设备路径和抽象 socket 地址不作路径重写。各组件的配置文档明确这些字段。
-
-现行任务继承：PlanetJoystick 通用设备默认 → `operator.yaml` 通用请求映射 → planet-rally 的 rally 请求 → 显式 site overlay → cadence-rally stack 的本次连接与设备覆盖。映射中的 ID/key 由接收端状态目录解释，配置本身不依赖 Cadence 的状态类。`inputs.requests` 使用状态名作为键时可逐项覆盖，`null` 禁用继承项；旧列表仍整体替换。legacy recorder 与 debugger 也使用统一 loader；业务 schema 分别校验。状态机父子关系由运行时和应用定义，与 YAML 的 `extends` 无关。
-
-## 通用 operator 接入
-
-Cadence 的 `runtime.operator` 显式启用 PLNJ 接收与只读状态查询。未配置时不创建 operator socket：
-
-```yaml
-extends: pkg://cadence/data/a3_operator_demo.yaml
-runtime:
   operator:
-    host: 127.0.0.1
-    port: 50560
-    signal_mode: level
-    mapping:
-      velocity_axes: [left_y, left_x, right_x]
-      velocity_scales: [0.4, 0.2, 0.5]
-      emergency_signal_id: 0
-      reset_signal_id: 1
-    linear_slew_rate_mps2: 0.5
-    yaw_slew_rate_radps2: 1.0
-    velocity_deadzone: 0.1
+    host: 0.0.0.0
 ```
 
-通用默认值来自 `pkg://cadence/data/operator.yaml`。轴是协议中的归一化输入，由执行部署映射成 `vx`、`vy`（m/s）和 yaw（rad/s），再进行变化率限制。`level` 持续提供按住的安全信号；`rising` 只提供上升沿。PLNJ 断流或 TTL 过期时不再提供状态请求，并向变化率限制器输入零速度。它不会改写上肢目标邮箱。
-
-`a3_operator_demo.yaml` 注册 `passive=0`、`damping=1`、`fixedpos=2`、`loco=3`，从 damping 启动。`a3_operator_stream_demo.yaml` 继承它，把 loco 工厂替换为实时上肢状态并启用独立目标端口。配套发送端是 `pkg://planetj/data/operator.yaml`；先运行 `planetj --config pkg://planetj/data/operator.yaml --check-remote` 验证 ID 和状态名。
-
-## 通用外部定位
-
-`runtime.localization` 独立于 operator 与上肢目标输入；省略或设为 `null` 时不创建接收端。
-其配置字段如下，source 与坐标系名称必须与生产者完全匹配：
-
-```yaml
-runtime:
-  localization:
-    host: 127.0.0.1
-    port: 15110
-    source: mocap
-    frame_id: world
-    child_frame_id: policy_root
-    max_age_s: 0.25
-    max_datagrams_per_poll: 64
+```bash
+./scripts/run.sh --config configs/entry/entry_site.yaml
 ```
 
-协议为 `planet.localization.v1`：位置 m、线速度 m/s、单位四元数 wxyz。接收端检查
-source、frame、session/sequence 顺序及 TTL，不做隐式坐标变换。可用年龄为
-`source_age_s + 接收后的单调时钟时间`，上限取发送端 TTL 和 `max_age_s` 的较小值；未测量
-的网络排队时间不包含在内。过期或显式无效的新样本撤回定位，状态级保持与回退由运行时
-契约决定。字段语义与轻量发送端示例见 [部署指南](deployment.md#外部定位)。
+`extends` 按列表顺序合并，最后合并当前文件。字典递归合并，列表整体替换。
+共享 loader 也支持显式 `compose` 层；仓库入口以 `extends` 展示依赖。
+重复 YAML key、循环引用和缺失文件会报错；运行加载进一步校验字段、状态、模型和关节布局。
+YAML 继承只合并配置，状态工厂选择实现，运行时决定状态切换与生命周期。
 
-共享协议实现位于 planetConfig 的 `planet-protocol`。Cadence 接收端同时支持旧
-`cadence.localization.v1`、`cadence.operator.v1`、`cadence.joint-target.v1`；新生产者使用
-`planet.*.v1`。operator 和上肢目标回复使用请求的 schema 名，定位为单向发送，无回复。
+```bash
+.venv/bin/cadence config resolve configs/entry/entry_sim.yaml --output runs/config
+./scripts/run.sh --config configs/entry/entry_sim.yaml --check
+```
 
-## 可复用运动状态配置
+`config resolve` 展示入口的合并结果；运行加载还会展开注册表及其状态文件。
+运行快照包含解析后的配置、来源与摘要，详见 [独立部署](deployment.md)。
 
-`pkg://cadence/data/motion/a3_lower.yaml` 包含完整的 A3 下肢契约：机器人参考姿态、关节分区与限位、PD 增益、下肢模型和上肢默认姿态。`a3_lower_stream.yaml` 继承它，供实时上肢状态使用。应用的状态配置继承这些包资源，仅覆盖部署差异：
+## A3 后端和运动状态
+
+[后端配置](../configs/backends/a3_readonly.yaml) 显式选择 transport：
+
+| 用途 | `transport` | `read_only` | `command_publish_enabled` |
+| --- | --- | --- | --- |
+| 真机只读 | `aimrt` | `true` | `false` |
+| 真机命令 | `aimrt` | `false` | `true` |
+| SDK 接口验证 | `sdk_mock` | `false` | `false` |
+
+`backend.aimrt.config_path` 指向根 `configs/aimrt/` 中的配置；现场共享库可由 `backend.library_path` 指定。
+两者按声明文件解析。topic、同步偏差、超时和 neck 保持增益都在后端配置中。
+A3 的 29 维关节名称和顺序必须与 SDK 一致。
+
+[固定上肢状态配置](../configs/states/a3_lower.yaml) 包含完整 A3 下肢契约；
+[实时上肢配置](../configs/states/a3_lower_stream.yaml) 继承它。
+调整上肢姿态修改 `upper.default_position`，完整提供 14 个弧度值。
+`robot.default_position` 属于模型观测和动作解码契约，不应作为上肢动作配置修改。
+`lower.factory`、`lower.model` 选择下肢模型适配器和资源；模型可以继续使用安装包内资源，无需复制模型。
+
+任务仓库通过固定版本的 Cadence submodule 引用这些文件，例如任务的 `configs/states/loco.yaml`：
 
 ```yaml
-extends: pkg://cadence/data/motion/a3_lower.yaml
+extends: ../../external/cadence/configs/states/a3_lower.yaml
 upper:
   default_position: [0.25, 0.10, 0, 0.90, 0, 0, 0, 0.25, -0.10, 0, 0.90, 0, 0, 0]
 ```
 
-`upper.default_position` 是双臂关节角度，单位 rad。它与模型参考姿态 `robot.default_position` 分开：调整上肢控制姿态不改变策略的观测偏移或 action 解码。`lower.factory` 选择模型适配器，状态 registry 的 `factory` 选择 `cadence.motion:LowerLocoState` 或 `cadence.motion:LowerLocoStreamState`。
+## 三类输入
 
-在 Cadence CLI 的运行配置中，`catalog.states.<id>.config` 可引用状态 YAML 文件；被引用的状态配置也支持 `extends`。`lower.model` 可使用包资源，默认值为 `pkg://cadence/data/models/a3_loco_lower.onnx`。应用无需复制 Cadence 的模型文件。
+- [operator](../configs/inputs/operator.yaml)：归一化轴映射成速度并限速；默认 UDP 50560。
+- [upper targets](../configs/inputs/upper_targets.yaml)：将关节目标交给注册的流式状态；默认 loopback UDP 15100。
+- [localization](../configs/inputs/localization.yaml)：接收显式 source 和坐标系的定位；默认 UDP 15110。
 
-实时目标接收由运行配置显式启用：
+入口没有引用对应输入时就不创建接收端。operator 断流后不再提供状态请求，并向变化率限制器输入零速度；
+这不等于自动急停，是否强制回退取决于状态的 `requires_operator_link` 契约。
+流式上肢在当前激活期间持续保持最新目标，断流不会恢复默认姿态。
+定位按 TTL 过期，状态自行决定保持或回退。详细字段见 [运动组合](motion-composition.md) 与 [外部定位](localization.md)。
 
-```yaml
-runtime:
-  upper_target_udp: {state: loco, host: 127.0.0.1, port: 15100}
-```
-
-`state` 必须选择具有上肢输入邮箱的实时状态；接收端只支持 loopback。普通运行配置省略该字段便不创建接收端。此配置没有超时或默认姿态回退字段：实时状态在本次激活内持续保持最新目标；默认姿态在进入状态时重置。
-
-完整字段与可运行示例见 [下肢移动与上肢关节控制](motion-composition.md)。
+配置与协议实现来自独立 [planetConfig](https://github.com/Renforce-Dynamics/planetConfig)。
+Cadence 的 `cadence_config`、`cadence_protocol` 仅保留兼容导入；Planet 系列直接依赖共享库，不安装 Cadence 或 SDK。

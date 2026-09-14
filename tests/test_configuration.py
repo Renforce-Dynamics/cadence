@@ -52,7 +52,7 @@ def test_artifact_checksum_and_package_resource(tmp_path):
     p.write_bytes(b"two")
     with pytest.raises(ConfigError):
         resolve_resource("artifact://policy", artifacts=lock)
-    assert resolve_resource("pkg://cadence/data/demo.yaml").is_file()
+    assert resolve_resource("pkg://cadence/data/two_joint.xml").is_file()
     with pytest.raises(ConfigError):
         resolve_resource("pkg://cadence/../private")
 

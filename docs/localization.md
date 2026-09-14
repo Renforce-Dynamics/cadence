@@ -4,58 +4,74 @@ planetConfig owns the common robot-localization wire contract in its standard-li
 
 ## Enable an endpoint
 
-Compose the optional localization layer with a deployment:
+All runtime configuration lives in the repository's root `configs/` tree.
+To add localization to the existing A3 operator entry, include `../inputs/localization.yaml`
+in `configs/entry/entry_a3_operator.yaml` and set the producer identity:
 
 ```yaml
 extends:
-  - pkg://cadence/data/a3_operator_demo.yaml
-  - pkg://cadence/data/localization.yaml
+  - ../runtime/control.yaml
+  - ../robots/a3.yaml
+  - ../backends/mock.yaml
+  - ../inputs/operator.yaml
+  - ../inputs/localization.yaml
 runtime:
+  state_registry_config: ../state_registries/a3_operator.yaml
+  start_state: damping
+  duration_s: 5
   localization:
     source: mocap
+```
+
+[The shared input configuration](../configs/inputs/localization.yaml) supplies these defaults:
+
+```yaml
+runtime:
+  localization:
     host: 127.0.0.1
     port: 15110
+    source: localization
     frame_id: world
     child_frame_id: policy_root
     max_age_s: 0.25
     max_datagrams_per_poll: 64
 ```
 
-The packaged layer contains all defaults shown above, except `source` defaults to `localization`. `runtime.localization: null`, or omitting the field, disables this endpoint. An enabled endpoint is the explicit localization source: missing, invalid or expired external samples produce `None`. The frontend does not silently replace them with backend localization or the Rally planner's embedded root. Without this endpoint, a frontend may use its existing backend or task localization source when valid.
+Omitting `runtime.localization`, or setting it to `null`, disables this endpoint.
+When enabled, it is the explicit localization source: missing, invalid or expired external
+samples produce `None`. The frontend does not replace them with backend localization or
+an embedded Rally planner root. Without this endpoint, a frontend can use its existing
+backend or task localization source when valid.
 
-The receiver defaults to loopback. Set a reachable bind address explicitly when the producer is on another host. The sender's destination is the receiver host, while the receiver's `source` is a logical producer name, not a host name. Both frame names and source must match exactly; unexpected values are rejected. Binding the same endpoint twice fails at startup.
+The receiver defaults to loopback. For a producer on another host, set a reachable bind
+address in the selected entry's input configuration. The sender's destination is the receiver
+host; `source` is a logical producer name. Source and both frame names must match exactly.
+Binding the same endpoint twice fails at startup.
 
-Save the example as `external-localization.yaml` in your working directory. The selected A3 catalog includes the lower-body actor, so install the `inference` extra even when starting in damping or using `--check`. From a Cadence checkout, validate and launch its standalone mock deployment with:
+The A3 catalog includes the lower-body actor, so install `inference` even when starting in
+damping or checking the configuration. Run from the Cadence checkout:
 
 ```bash
 ./scripts/bootstrap.sh --extra inference
-./scripts/deploy.sh --config ./external-localization.yaml --check
-./scripts/deploy.sh --config ./external-localization.yaml --duration-s 5
+./scripts/run.sh --config configs/entry/entry_a3_operator.yaml
 ```
 
-`--check` validates and loads the selected configuration without opening the localization socket or starting a backend. During execution, the initial available root is passed to the initial state's `on_enter`. A generic deployment whose initial state requires world localization fails startup if no fresh root is available; start from `damping` and request the dependent state after localization arrives. Full backend selection and snapshot options are described in [standalone deployment](deployment.md).
+Adding `--check` validates the entry, registry and models without opening a socket or backend.
+During execution, the initial available root is passed to the initial state's `on_enter`.
+An initial state requiring world localization cannot start without a fresh root; start from
+`damping` and request the dependent state after localization arrives. See [deployment](deployment.md).
 
-Cadence-rally uses the same optional layer in its own entry schema. For example, a Rally simulation overlay can contain:
+Cadence-rally selects this same input through its own root entry and pinned Cadence submodule.
+From a Rally entry in `configs/entry/`, the shared layer is
+`../../external/cadence/configs/inputs/localization.yaml`.
+Its PLNU receiver continues carrying task plans and targets; the selected localization input
+supplies the world root. The task application already contains the Cadence runtime.
+See [Cadence-rally configuration](https://github.com/Renforce-Dynamics/cadence-rally/blob/main/docs/configuration.md).
 
-```yaml
-extends:
-  - pkg://cadence_rally/data/configs/entry/entry_sim_mixed.yaml
-  - pkg://cadence/data/localization.yaml
-runtime:
-  localization:
-    source: mocap
-```
-
-Save that overlay as `rally-localization.yaml` and use the **Cadence-rally checkout's** script:
-
-```bash
-./scripts/deploy.sh --config ./rally-localization.yaml --backend mujoco --check
-./scripts/deploy.sh --config ./rally-localization.yaml --backend mujoco --headless --duration-s 5
-```
-
-This process contains the Cadence runtime; no second Cadence process is needed. Its PLNU receiver still carries Rally plans and task targets, while the explicitly selected localization endpoint supplies the world root. The same input setting is available for Rally dry-run and onboard entries. See [Cadence-rally configuration](https://github.com/Renforce-Dynamics/cadence-rally/blob/main/docs/configuration.md#external-localization) for task entry selection and the legacy sources used when localization ingress is disabled.
-
-`max_datagrams_per_poll` limits each nonblocking control-loop poll to 1–1024 datagrams, default 64, including malformed datagrams. The receiver retains only one accepted sample and two ordering counters. Backlog is processed on later polls; this is a bounded packet-work budget, not a hard real-time timing guarantee. A received datagram cannot exceed 8192 bytes.
+`max_datagrams_per_poll` limits each nonblocking control-loop poll to 1–1024 datagrams,
+default 64, including malformed datagrams. The receiver retains one accepted sample and two
+ordering counters. Backlog is processed on later polls; this is a packet-work limit, not a
+hard real-time guarantee. Each datagram is limited to 8192 bytes.
 
 ## Wire contract
 

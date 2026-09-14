@@ -102,8 +102,8 @@ such as `debug_name` does not select a state.
 
 | Profile | State IDs and canonical keys |
 | --- | --- |
-| `pkg://planetj/data/operator.yaml` | `0 passive`, `1 damping`, `2 fixedpos`, `3 loco` |
-| planet-rally `operators/rally.yaml` | Inherits 0–3, adds `4 hold_static`, `5 hold_move`, `6 serve`, `7 strike` |
+| Cadence `configs/entry/entry_joystick.yaml` | `0 passive`, `1 damping`, `2 fixedpos`, `3 loco` |
+| planet-rally `operators/rally.yaml` | Uses 0–3 and adds `4 hold_static`, `5 hold_move`, `6 serve`, `7 strike` |
 | planet-rally `operators/rally_with_fast.yaml` | Inherits rally, adds `8 fast_rally` for a catalog that registers it |
 
 These are provided profiles, not hard-coded IDs in PlanetJoystick. A new task can
@@ -111,6 +111,12 @@ choose a different catalog and explicitly configure its bindings. Keep inherited
 IDs stable when reusing an existing profile. `planetj --check-remote` checks each
 configured name/ID against the running deployment, including catalog aliases.
 An unknown runtime request produces a rejection event and does not change state.
+
+Cadence keeps the complete companion producer config in `configs/operators/joystick.yaml`.
+The runtime reads its runtime entry; a separately installed PlanetJoystick process
+reads `configs/entry/entry_joystick.yaml`. Both the fixed-upper and streamed-upper
+A3 operator registries use these bindings. Keeping matching configuration here
+adds no PlanetJoystick package dependency or source submodule.
 
 The operator UDP port also answers `planet.operator.v1` JSON `describe` and
 `status` queries. `describe` reports registered states and safety destinations.
@@ -127,9 +133,22 @@ schema defaults, while `planet_protocol` clients default to the Planet names.
 
 ## Configuration inheritance and state lifecycle
 
-Configuration flows from device defaults to generic Cadence bindings, task
-bindings, site overlays and explicit launch overrides. `extends` and `compose`
-merge values; they do not create Python subclasses or runtime parent states.
+Cadence and its task applications keep runtime configuration in their root `configs/` trees. Cadence
+requires an explicit `configs/entry/entry_*.yaml`; it contains references to robot,
+backend, input and runtime layers. Backend selection, duration, window behavior,
+start state and network endpoints are all selected by that configuration chain.
+Configuration is not distributed inside the Python package; model assets can be.
+
+The entry's `runtime.state_registry_config` points to an independent catalog mapping
+in `configs/state_registries/`. Each `states.<id>.config` refers to a state file in
+`configs/states/`, resolved relative to the registry that declared it. A state file's
+model paths retain that file's origin. A task can inherit the generic motion contract
+through its pinned `external/cadence/configs/states/a3_lower.yaml` or
+`a3_lower_stream.yaml` without copying models or deployment defaults.
+
+Device bindings, task bindings and site differences also use explicit configuration
+inheritance. `extends` and `compose` merge values; they do not create Python
+subclasses or runtime parent states.
 Named `inputs.requests` mappings merge one binding at a time; `null` disables an
 inherited binding. Legacy lists remain supported and replace the whole list.
 
@@ -149,17 +168,17 @@ exit invalidates the activation. Safety always has priority. See the
 
 ## Independent deployment and perception
 
-Both repositories provide a deploy script and can be installed and launched as
+Both repositories provide their own run script and can be installed and launched as
 applications. Cadence runs generic states on mock, MuJoCo or A3. cadence-rally
 loads its task states into the shared execution infrastructure; it depends on
 the Cadence library, without requiring a separate Cadence process. The same
 prepare/guard/write/commit transaction and A3 SDK adapter serve both layers.
 
-Cadence's `scripts/deploy.sh` invokes `cadence deploy`. Its configuration selects
-the state catalog, backend and optional input endpoints. `--check` validates
-without opening I/O. Each deployment can freeze its effective configuration;
-runtime sockets and device lifecycles are created only when running. See the
-[deployment guide](deployment.md) for the independent profiles and commands.
+Cadence's `scripts/run.sh --config configs/entry/entry_sim.yaml` selects an explicit
+entry. The run command exposes only configuration selection, output directory and
+`--check`. Both execution and checking save the selected configuration; checking
+loads states and models without starting I/O. Sockets and device lifecycles are
+created only during execution. See the [deployment guide](deployment.md).
 
 `backend.transport: aimrt` uses actual A3 state and explicitly selected readonly
 or command operation. `sdk_mock` is a native SDK conformance fixture with static
@@ -182,8 +201,8 @@ meanings; none of the input messages independently certifies robot execution.
 
 ## Adding another task
 
-1. Create an application that depends on Cadence. Register its states and optional
-   `cadence.applications` entry point; reuse Cadence motion factories and models.
+1. Create an application that depends on Cadence. Select its factories in a root
+   state registry; reuse Cadence motion factories and models through file references.
 2. Extend the generic operator profile with named task bindings. Keep robot
    gains, joint limits and state defaults in the execution deployment; keep
    buttons and producer mappings in the operator profile.

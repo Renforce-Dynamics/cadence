@@ -1,4 +1,4 @@
-"""Cadence control runtime, configuration tools, and installed application launcher."""
+"""Run Cadence from one editable entry configuration."""
 
 import argparse
 from datetime import datetime, timezone

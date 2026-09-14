@@ -205,26 +205,28 @@ def test_check_loads_states_without_opening_sdk_or_localization_socket(tmp_path,
     assert json.loads(capsys.readouterr().out)["started"] is False
 
 
-def test_deploy_script_preserves_caller_paths_and_snapshots_effective_flags(tmp_path):
-    script = Path(__file__).resolve().parents[1] / "scripts/deploy.sh"
+@pytest.mark.parametrize("script_name", ["run.sh", "deploy.sh"])
+def test_script_preserves_caller_paths_and_snapshots_entry_values(tmp_path, script_name):
+    repository = Path(__file__).resolve().parents[1]
+    script = repository / "scripts" / script_name
     folder = tmp_path / "site folder"
     folder.mkdir()
     config = folder / "entry config.yaml"
-    config.write_text("extends: pkg://cadence/data/demo.yaml\n")
+    config.write_text(yaml.safe_dump({"extends": str(repository / "configs/entry/entry_mock.yaml"),
+                                      "runtime": {"duration_s": .02, "control_hz": 100}}))
     subprocess.run([str(script), "--venv", sys.prefix, "--config", "site folder/entry config.yaml",
-                    "--duration-s", ".02", "--backend", "mock", "--set", "runtime.control_hz=100",
                     "--output", "run folder", "--check"], cwd=tmp_path, check=True, capture_output=True, text=True)
     target = tmp_path / "run folder"
     effective = yaml.safe_load((target / "resolved.yaml").read_text())
     assert effective["runtime"]["duration_s"] == .02 and effective["runtime"]["control_hz"] == 100
     assert effective["backend"]["kind"] == "mock"
     overrides = json.loads((target / "overrides.json").read_text())
-    assert "runtime.duration_s=0.02" in overrides and "runtime.control_hz=100" in overrides
+    assert overrides == []
 
 
 def test_deploy_creates_default_snapshot_under_caller_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert main(["deploy", "--check"]) == 0
+    assert main(["deploy", "--config", str(Path(__file__).resolve().parents[1] / "configs/entry/entry_mock.yaml"), "--check"]) == 0
     targets = list((tmp_path / "runs").glob("deploy-*/deployment.json"))
     assert len(targets) == 1
 
@@ -271,7 +273,9 @@ def test_external_localization_reaches_initial_entry_and_expires_without_backend
     cfg = yaml.safe_load(path.read_text())
     cfg["runtime"]["localization"] = {"port": port}
     path.write_text(yaml.safe_dump(cfg))
-    assert run_config(path, duration=.065) == 0
+    cfg["runtime"]["duration_s"] = .065
+    path.write_text(yaml.safe_dump(cfg))
+    assert run_config(path) == 0
     np.testing.assert_allclose(ProgressState.instances[-1].initial_localization.position_w, (1, 2, 3))
     assert observations[0] is not None and observations[-1] is None
     assert all(x is None or np.array_equal(x.position_w, (1., 2., 3.)) for x in observations)
