@@ -8,6 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 import hashlib
 import json
 from pathlib import Path
+import re
 import signal
 import threading
 import time
@@ -22,6 +23,11 @@ def _declared_file(resolved, key):
     value = resolved.data
     for part in key.split("."):
         value = value[part if part in value else int(part)]
+    return _resolve_declared_file(resolved, key, value)
+
+
+def _resolve_declared_file(resolved, key, value):
+    """Resolve a value with its leaf origin, including resource names with dots."""
     if not isinstance(value, (str, Path)) or not str(value).strip() or "://" in str(value):
         raise ConfigError(f"{key} must reference an explicit filesystem path")
     source = Path(resolved.origins.get(key, str(resolved.source)))
@@ -92,7 +98,20 @@ def load_run_config(path):
             raise ConfigError(f"{prefix} must be a mapping or configuration path")
     expanded = ResolvedConfig(data, origins, resolved.source, resolved.overrides)
     for state_id, definition in catalog["states"].items():
-        lower = definition.get("config", {}).get("lower")
+        state_config = definition["config"]
+        prefix = f"catalog.states.{state_id}.config"
+        if "resources" in state_config:
+            resources = state_config["resources"]
+            if not isinstance(resources, Mapping):
+                raise ConfigError(f"{prefix}.resources must be a mapping of names to file paths")
+            for name, value in resources.items():
+                if not isinstance(name, str) or not name.strip():
+                    raise ConfigError(f"{prefix}.resources names must be nonempty strings")
+                key = f"{prefix}.resources.{name}"
+                if not isinstance(value, str) or not value.strip() or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", value):
+                    raise ConfigError(f"{key} must reference an explicit filesystem path string")
+                resources[name] = str(_resolve_declared_file(expanded, key, value))
+        lower = state_config.get("lower")
         if isinstance(lower, dict) and "model" in lower:
             lower["model"] = str(_declared_file(expanded, f"catalog.states.{state_id}.config.lower.model"))
     backend = data["backend"]
@@ -216,6 +235,9 @@ def _freeze(plan, output):
             for item in value:
                 collect(item)
     collect(cfg)
+    for definition in cfg["catalog"]["states"].values():
+        for path in definition["config"].get("resources", {}).values():
+            resources[path] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     packages = {}
     for name in ("cadence", "cadence-api", "cadence-config", "cadence-protocol", "planet-config", "planet-protocol", "agi3sdk", "onnxruntime", "mujoco"):
         try:
@@ -238,10 +260,12 @@ def _backend_localization(backend, state):
     return LocalizationState(state.root_position_w, state.quaternion_wxyz, state.root_linear_velocity_w)
 
 
-def _publish_status(receiver, output, *, shadow):
+def _publish_status(receiver, output, *, shadow, entry_gate_ready=None):
     receiver.update_status({
         "mode": output.mode, "safety_halted": output.safety_halted,
         "events": output.events, "execution": "shadow" if shadow else "backend",
+        "substate": getattr(output, "skill_state", None),
+        "entry_gate_ready": entry_gate_ready,
     })
 
 
@@ -254,10 +278,11 @@ def run_config(path, *, output=None, check=False):
     resolved = load_run_config(path)
     plan = prepare_deployment(resolved)
     cfg, backend = resolved.data, plan.backend
+    services = SimpleNamespace(dimension=plan.dimension, joint_names=tuple(cfg["robot"]["joints"]))
     _freeze(plan, output)
     if check:
         try:
-            states = plan.catalog.instantiate(SimpleNamespace(dimension=plan.dimension))
+            states = plan.catalog.instantiate(services)
             if plan.upper is not None and not hasattr(states[plan.catalog.canonical_key(plan.upper["state"])], "upper_targets"):
                 raise ConfigError("upper_target_udp.state must select a streamed upper motion state")
             print(json.dumps({"configuration_valid": True, "backend": cfg["backend"]["kind"],
@@ -285,7 +310,6 @@ def run_config(path, *, output=None, check=False):
                 previous = signal.signal(sig, lambda *_: stop.set())
                 cleanup.callback(signal.signal, sig, previous)
         try:
-            services = SimpleNamespace(dimension=plan.dimension)
             states = plan.catalog.instantiate(services)
             if plan.localization is not None:
                 from .localization import LocalizationReceiver
@@ -315,7 +339,7 @@ def run_config(path, *, output=None, check=False):
                 operator = JoystickCommandReceiver(plan.operator.host, plan.operator.port)
                 cleanup.callback(operator.close)
                 operator.set_catalog(plan.catalog)
-                _publish_status(operator, SimpleNamespace(mode=kernel.current.key, safety_halted=False, events=()), shadow=shadow)
+                _publish_status(operator, SimpleNamespace(mode=kernel.current.key, safety_halted=False, events=()), shadow=shadow, entry_gate_ready=False)
                 input_adapter = OperatorInputAdapter(plan.operator.mapping, plan.operator.signal_mode)
                 velocity_limiter = VelocitySlewRateLimiter(plan.operator.linear_slew_rate_mps2, plan.operator.yaw_slew_rate_radps2, plan.operator.velocity_deadzone)
             if plan.upper is not None:
@@ -386,7 +410,7 @@ def run_config(path, *, output=None, check=False):
                 if viewer is not None:
                     viewer.sync()
                 if operator is not None:
-                    _publish_status(operator, cycle.output, shadow=shadow)
+                    _publish_status(operator, cycle.output, shadow=shadow, entry_gate_ready=kernel.entry_gate_ready)
                 if realtime and not hardware:
                     time.sleep(max(0, dt - (time.monotonic() - now)))
         except KeyboardInterrupt:

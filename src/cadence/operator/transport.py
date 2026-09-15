@@ -67,7 +67,12 @@ class JoystickCommandReceiver:
         }
 
     def update_status(self, output) -> None:
-        """Publish an accepted runtime result (or an explicit startup snapshot)."""
+        """Publish an accepted runtime result (or an explicit startup snapshot).
+
+        An optional ``substate`` takes precedence over RuntimeOutput's
+        ``skill_state``. Missing or None values preserve the legacy response
+        shape; state names are opaque to this transport.
+        """
         def field(name, default=None):
             return output.get(name, default) if isinstance(output, Mapping) else getattr(output, name, default)
 
@@ -81,10 +86,20 @@ class JoystickCommandReceiver:
         execution = field("execution")
         if execution is not None and execution not in ("backend", "shadow"):
             raise ValueError("operator execution must be backend or shadow")
+        substate = field("substate", field("skill_state"))
+        if substate is not None and (not isinstance(substate, str) or not substate.strip()):
+            raise ValueError("operator substate must be a nonempty string or None")
+        entry_gate_ready = field("entry_gate_ready")
+        if entry_gate_ready is not None and type(entry_gate_ready) is not bool:
+            raise ValueError("operator entry_gate_ready must be a boolean")
         self._status = {"schema": OPERATOR_SCHEMA, "type": "status", "mode": mode,
                         "safety_halted": halted, "events": list(events)}
         if execution is not None:
             self._status["execution"] = execution
+        if substate is not None:
+            self._status["substate"] = substate
+        if entry_gate_ready is not None:
+            self._status["entry_gate_ready"] = entry_gate_ready
 
     def _answer_query(self, raw, peer):
         schema = OPERATOR_SCHEMA

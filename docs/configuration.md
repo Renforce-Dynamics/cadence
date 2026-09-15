@@ -124,6 +124,29 @@ upper:
   default_position: [0.25, 0.10, 0, 0.90, 0, 0, 0, 0.25, -0.10, 0, 0.90, 0, 0, 0]
 ```
 
+任务状态可以在自己的 state config 中声明具名文件资源，例如：
+
+```yaml
+# configs/states/reference.yaml；文件由任务仓库提供
+resources:
+  trajectory: ../../assets/reference.npz
+```
+
+`resources` 是名称到显式文件路径的映射。每个路径相对于声明该字段的 YAML 解析；继承仅覆盖
+指定的名称，其余资源保留原来的路径来源。空值、URI、非字符串和缺失文件都会报错，不查找包内资源。
+Cadence 将绝对路径保留在 state config 中交给任务工厂，文件格式、关节映射和播放语义由工厂校验。
+所有部署状态同时获得 `services.dimension` 和 `services.joint_names`（与 `robot.joints` 同序的 tuple）；
+任务应据此映射具名关节。`--check` 同样解析资源并加载工厂，但不启动输入或 RobotIO。
+部署快照的 `deployment.json.resource_sha256` 记录每个声明资源的内容哈希。
+
+operator 的状态响应在已有字段之外可包含 `substate`，对应最近已接受控制结果的 `skill_state`。
+任务可以用它报告 `READY`、`HOLD` 等阶段；未发布子状态的启动快照和旧调用方仍省略此字段。
+状态主动交接后先报告 `ENTERING`，新状态的首个控制结果被接受后才报告它自身的子状态。
+可选布尔字段 `entry_gate_ready` 独立报告最近已提交的进入条件：启动和状态切换后为 `false`，
+例如固定姿态达到配置的插值进度与位置容差且命令被接受后才为 `true`，不能从 `substate` 推断。
+嵌入式调用通过只读的 `RuntimeKernel.entry_gate_ready` 获取这一值，`RuntimeOutput` 的字段保持兼容。
+同时核对 `mode`、`safety_halted` 和 `execution`，其中 `shadow` 只表示只读计算结果。
+
 ## 三类输入
 
 - [operator](../configs/inputs/operator.yaml)：归一化轴映射成速度并限速；默认 UDP 50560。

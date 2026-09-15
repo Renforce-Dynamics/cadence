@@ -382,6 +382,11 @@ class RuntimeKernel:
     def pending_ticket(self):
         return None if self._pending is None else self._pending[0]
 
+    @property
+    def entry_gate_ready(self):
+        """Current state's committed entry gate; reset by each state transition."""
+        return bool(self._entry_gate_ready)
+
     def commit(self, ticket=None):
         if self._pending is None:
             raise RuntimeError("no pending command")
@@ -405,6 +410,10 @@ class RuntimeKernel:
                     self._state_requested_transition(
                         target, frame, events, source=owner
                     )
+                    if owner is not self.current:
+                        # The accepted command belongs to the source state. The
+                        # destination has entered, but has not submitted a step.
+                        output = replace(output, skill_state="ENTERING")
         return replace(output, mode=self.current.key.upper(), events=tuple(events))
 
     def reject(self, ticket=None):

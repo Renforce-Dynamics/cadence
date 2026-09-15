@@ -85,6 +85,60 @@ def test_emergency_wins_over_reset_and_deadline_rejects_skill():
     assert calls == ["rollback"] and result.safety_halted
 
 
+def test_handoff_does_not_publish_source_substate_as_destination_readiness():
+    k, backend, state = kernel()
+    try:
+        source = k.current
+        command = source.step(ControlFrame(0, state)).command
+        source.step = lambda frame: ControlResult(command, substate="HOLD", entry_gate_ready=True, next_state="damping")
+        prepared = k.prepare(RuntimeInput(.02, state, None))
+        assert (prepared.mode, prepared.skill_state) == ("PASSIVE", "HOLD")
+        backend.write_command(prepared.command, state.sequence)
+        entered = k.commit()
+        assert (entered.mode, entered.skill_state) == ("DAMPING", "ENTERING")
+        assert k.entry_gate_ready is False
+
+        state = backend.read_state()
+        candidate = k.prepare(RuntimeInput(.04, state, None))
+        assert candidate.skill_state == "READY"
+        k.reject()
+        # A rejected candidate must not change the last committed status.
+        assert entered.skill_state == "ENTERING"
+        accepted = k.prepare(RuntimeInput(.06, state, None))
+        backend.write_command(accepted.command, state.sequence)
+        accepted = k.commit()
+        assert (accepted.mode, accepted.skill_state) == ("DAMPING", "READY")
+        assert k.entry_gate_ready is False
+    finally:
+        backend.close()
+
+
+def test_entry_gate_property_only_reports_committed_progress_and_convergence():
+    k, backend, state = kernel()
+    try:
+        pending = k.prepare(RuntimeInput(.02, state, None, requested_state="align"))
+        assert "entry_gate_ready" not in pending.__dataclass_fields__
+        assert k.entry_gate_ready is False
+        with pytest.raises(AttributeError):
+            k.entry_gate_ready = True
+        waiting = k.commit()
+        # BasicState's default substate is READY even before its entry gate opens.
+        assert waiting.skill_state == "READY"
+        assert k.entry_gate_ready is False
+        k.prepare(RuntimeInput(1.1, state, None))
+        k.reject()
+        assert k.entry_gate_ready is False
+        pending = k.prepare(RuntimeInput(1.12, state, None))
+        assert k.entry_gate_ready is False
+        k.commit()
+        assert k.entry_gate_ready is True
+        k.prepare(RuntimeInput(1.14, state, None, requested_state="damping"))
+        k.commit()
+        assert k.entry_gate_ready is False
+    finally:
+        backend.close()
+
+
 def test_parent_cancel_prevents_stale_child_event():
     parent = HierarchicalMachine("mode", {"idle", "run"}, "run")
     child = HierarchicalMachine(
