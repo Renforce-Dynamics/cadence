@@ -69,7 +69,7 @@ A3 关节顺序必须与规范 29 维名称一致；SDK 单独保持 neck 两关
 ## 输入与运行结果
 
 operator、实时上肢、定位分别由 `configs/inputs/` 中的配置启用。跨机器接入时修改接收地址和发送目标；
-实时上肢接收器目前只绑定 loopback。默认状态请求见 [A3 教程](a3-onboard.md)，上肢生产者见 [运动组合](motion-composition.md)。
+实时上肢接收器默认绑定 `127.0.0.1`；`runtime.upper_target_udp.host` 可显式选择 IPv4/IPv6 单播地址或 `0.0.0.0` / `::` 监听地址。默认状态请求见 [A3 教程](a3-onboard.md)，上肢生产者见 [运动组合](motion-composition.md)。
 
 operator 过期后清除状态请求并向速度变化率限制器输入零值。当前通用 loco 未要求 operator 链路持续在线，
 因此不能把手柄断流当作自动急停。上肢目标在激活期间保持最新值；定位输入则按 TTL 过期，

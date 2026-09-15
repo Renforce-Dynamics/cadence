@@ -150,7 +150,7 @@ operator 的状态响应在已有字段之外可包含 `substate`，对应最近
 ## 三类输入
 
 - [operator](../configs/inputs/operator.yaml)：归一化轴映射成速度并限速；默认 UDP 50560。
-- [upper targets](../configs/inputs/upper_targets.yaml)：将关节目标交给注册的流式状态；默认 loopback UDP 15100。
+- [upper targets](../configs/inputs/upper_targets.yaml)：将关节目标交给注册的流式状态；默认 `127.0.0.1:15100`，显式 host 可使用 IPv4/IPv6 单播或监听通配地址。
 - [localization](../configs/inputs/localization.yaml)：接收显式 source 和坐标系的定位；默认 UDP 15110。
 
 入口没有引用对应输入时就不创建接收端。operator 断流后不再提供状态请求，并向变化率限制器输入零速度；

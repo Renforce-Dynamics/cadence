@@ -107,11 +107,18 @@ def test_stream_entry_default_newest_frame_hold_and_activation_isolation():
     assert not state.upper_targets.publish(JointTargetFrame(9, [0.9, 0.9], 1))
     state.on_enter(frame(), [])
     activation = state.upper_targets.activation
+    assert state.upper_targets.status()["q_des"] is None
+    assert state.upper_targets.status()["sequence"] is None
+    assert state.upper_targets.status()["state_id"] == 3
+    assert state.upper_targets.status()["state_key"] == "motion"
+    assert state.upper_targets.status()["joint_names"] is None
     assert state.upper_targets.publish(JointTargetFrame(0, [0.4, -0.3], activation))
     # An input arriving during entry must not replace the configured entry command.
     result = accept(state)
     np.testing.assert_allclose(result.command.q_des[[1, 3]], [0.25, 0.25])
     assert state.committed_upper_sequence is None
+    assert state.upper_targets.status()["q_des"] == [.25, .25]
+    assert state.upper_targets.status()["sequence"] == 0
     assert state.upper_targets.publish(JointTargetFrame(2, [0.6, -0.2], activation))
     assert not state.upper_targets.publish(JointTargetFrame(1, [0.8, 0.8], activation))
     np.testing.assert_allclose(accept(state, 0.04).command.q_des[[1, 3]], [0.6, -0.2])
@@ -120,8 +127,11 @@ def test_stream_entry_default_newest_frame_hold_and_activation_isolation():
     np.testing.assert_allclose(accept(state, 200.0).command.q_des[[1, 3]], [0.6, -0.2])
     assert state.phase == "HOLDING"
     state.on_exit(frame(), [])
+    assert state.upper_targets.status()["q_des"] is None
+    assert state.upper_targets.status()["sequence"] is None
     assert not state.upper_targets.publish(JointTargetFrame(3, [0.7, 0.7], activation))
     state.on_enter(frame(), [])
+    assert state.upper_targets.status()["q_des"] is None
     assert state.upper_targets.activation != activation
     assert not state.upper_targets.publish(JointTargetFrame(100, [0.7, 0.7], activation))
     np.testing.assert_allclose(accept(state).command.q_des[[1, 3]], [0.25, 0.25])
@@ -138,6 +148,8 @@ def test_rejected_stream_frame_rolls_back_history_phase_and_can_be_retried():
     assert candidate.substate == "TRACKING"
     assert state.phase == "DEFAULT" and state.committed_upper_sequence is None
     state.on_command_rejected()
+    assert state.upper_targets.status()["q_des"] == [.25, .25]
+    assert state.upper_targets.status()["sequence"] == 4
     assert state.adapter.history == [0.02]
     assert state.phase == "DEFAULT" and state.committed_upper_sequence is None
     np.testing.assert_array_equal(state.last_action, previous_action)
@@ -155,9 +167,34 @@ def test_feedback_uses_actual_smoothed_command_and_keeps_full_target():
     result = state.step(frame(now=0.04))
     actual = JointCommand(result.command.q_des * 0.5, np.zeros(5), np.ones(5), np.ones(5), np.zeros(5))
     state.on_command_applied(actual)
+    np.testing.assert_array_equal(state.upper_targets.status()["q_des"], actual.q_des[[1, 3]])
     np.testing.assert_allclose(state.last_action, (actual.q_des - 0.1) / 0.5)
     np.testing.assert_allclose(state.diagnostics_after_command(result.diagnostics).executed_action, state.last_action)
     np.testing.assert_array_equal(accept(state, 0.06).command.q_des[[1, 3]], [0.8, -0.6])
+
+
+def test_stream_endpoint_owns_named_upper_partition():
+    names = [f"joint_{index}" for index in range(5)]
+    state = LowerLocoStreamState(5, "upper_stream", config(), SimpleNamespace(dimension=5, joint_names=names))
+    names[1] = "changed"
+    assert state.upper_targets.status() == {
+        "activation": None, "dimension": 2, "joint_names": ["joint_1", "joint_3"],
+        "q_des": None, "sequence": None, "state_id": 5, "state_key": "upper_stream",
+    }
+
+
+def test_stale_command_acknowledgement_cannot_update_a_new_activation():
+    state = entered(LowerLocoStreamState)
+    pending = state.step(frame(now=.02))
+    previous = state.upper_targets.activation
+    current = state.upper_targets.activate()
+    with pytest.raises(RuntimeError, match="activation changed"):
+        state.on_command_applied(pending.command)
+    assert state._pending is None
+    assert not state.upper_targets.record_applied(previous, [.9, -.9])
+    status = state.upper_targets.status()
+    assert status["activation"] == current
+    assert status["q_des"] is None and status["sequence"] is None
 
 
 @pytest.mark.parametrize("action", [[float("nan"), 0, 0], [0, 0], [[0, 0, 0]]])

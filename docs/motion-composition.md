@@ -36,7 +36,22 @@ python3 scripts/send-upper-target.py --port 15100 --sequence 1 --q-des \
   0.30 0.12 0 0.80 0 0 0  0.30 -0.12 0 0.80 0 0 0
 ```
 
-脚本在未指定 `--activation` 时先查询当前激活编号。连续生产者应在状态进入后获取一次编号，使用该编号持续发送递增的 `sequence`。端口默认关闭，仅当运行配置显式设置 `runtime.upper_target_udp` 时启动；适配器只绑定 loopback 地址。
+脚本在未指定 `--activation` 时先查询当前激活编号。连续生产者应在状态进入后获取一次编号，使用该编号持续发送递增的 `sequence`。端口默认关闭，仅当运行配置显式设置 `runtime.upper_target_udp` 时启动。默认地址为 `127.0.0.1`；跨机器使用时，在配置中显式填写接收机的 IPv4/IPv6 单播地址，或以 `0.0.0.0` / `::` 监听相应接口。发送端的 `--host` 填写接收机地址或主机名。
+
+上肢端点的 `status` 在原有 `activation`、`dimension` 之外提供以下可选信息：
+
+| 字段 | 含义 |
+| --- | --- |
+| `state_id` / `state_key` | 此端点所属状态；状态未激活时仍保留，用于核对发送目标 |
+| `joint_names` | 目标数组的关节顺序；未提供具名布局的旧集成返回 `null` |
+| `sequence` | 当前 activation 最后接收的序号；未收到目标时为 `null` |
+| `q_des` | 当前 activation 最后提交的上肢命令目标，包含过渡平滑后的实际命令；首次提交前为 `null` |
+
+这些动态字段来自同一快照。`sequence` 只描述接收，`q_des` 不表示传感器实测位置；只读计算仍由
+operator status 的 `execution: shadow` 区分。重新进入状态会清空序号和已提交目标，并换用新 activation。
+同一 activation 下再次播放应从查询到的 `sequence + 1` 接续（`null` 时从 0 开始），按 `joint_names`
+映射输入，并使用 `q_des` 作为连续过渡的起点。接收回执 `accepted` 始终只表示收到了目标，不表示执行完成。
+旧客户端仍可使用原字段；新客户端允许旧服务端省略扩展字段。
 
 ## PlanetJoystick 配套入口
 

@@ -74,8 +74,14 @@ class LowerLocoState(ControlState):
         self._last_diagnostics = self._diagnostics(np.empty(0), self.last_action, np.zeros(self.n))
         if self.streamed_upper:
             upper = config.robot.upper_joints
+            joint_names = getattr(services, "joint_names", None)
+            if joint_names is not None:
+                if isinstance(joint_names, (str, bytes)) or len(joint_names) != self.n:
+                    raise ValueError("services.joint_names must match the motion joint dimension")
+                joint_names = tuple(joint_names[index] for index in upper)
             self.upper_targets = LatestJointTarget(
-                len(upper), config.robot.position_min[upper], config.robot.position_max[upper]
+                len(upper), config.robot.position_min[upper], config.robot.position_max[upper],
+                joint_names=joint_names, state_id=self.state_id, state_key=self.key,
             )
 
     @property
@@ -121,9 +127,10 @@ class LowerLocoState(ControlState):
             raise RuntimeError("motion state must be entered before stepping")
         if self._pending is not None:
             raise RuntimeError("previous motion command needs commit or reject")
+        activation = self.upper_targets.activation if self.streamed_upper else None
         upper_position, upper_sequence, phase = self._upper_candidate()
         snapshot = self.adapter.snapshot() if self._has_snapshot else None
-        self._pending = (snapshot, upper_position.copy(), upper_sequence, phase)
+        self._pending = (snapshot, upper_position.copy(), upper_sequence, phase, activation)
         try:
             action, observation = self.adapter.infer(frame, self.last_action.copy())
             action = np.asarray(action, dtype=np.float64)
@@ -161,7 +168,12 @@ class LowerLocoState(ControlState):
         action = (actual - self.default_pose) / self.action_scale
         if not np.all(np.isfinite(action)):
             raise ValueError("applied normalized action must be finite")
-        _, upper_position, upper_sequence, phase = self._pending
+        _, upper_position, upper_sequence, phase, activation = self._pending
+        if self.streamed_upper and not self.upper_targets.record_applied(
+            activation, actual[self.config.robot.upper_joints]
+        ):
+            self.on_command_rejected()
+            raise RuntimeError("upper target activation changed before command acknowledgement")
         self.last_action = action.copy()
         self.upper_position = upper_position.copy()
         self.committed_upper_sequence = upper_sequence
@@ -172,7 +184,7 @@ class LowerLocoState(ControlState):
 
     def on_command_rejected(self):
         if self._pending is not None:
-            snapshot, _, _, _ = self._pending
+            snapshot, _, _, _, _ = self._pending
             if self._has_snapshot:
                 self.adapter.restore(snapshot)
             self._pending = None

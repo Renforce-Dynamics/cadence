@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Query or send joint targets to an explicitly enabled local motion receiver.
+"""Query or send joint targets to an explicitly configured motion receiver.
 
 Example (choose the configured upper-joint count and order):
   python scripts/send-upper-target.py --port 50620 --status
@@ -31,12 +31,6 @@ def main() -> int:
     parser.add_argument("--q-des", nargs="+", type=float, help="joint positions in radians")
     parser.add_argument("--timeout", type=float, default=1.0)
     args = parser.parse_args()
-    try:
-        address = ipaddress.ip_address(args.host)
-    except ValueError:
-        parser.error("--host must be a loopback IP address")
-    if not address.is_loopback:
-        parser.error("--host must be a loopback IP address")
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
     if not math.isfinite(args.timeout) or args.timeout <= 0:
@@ -50,10 +44,17 @@ def main() -> int:
             parser.error("--activation must be positive")
         if not all(math.isfinite(value) for value in args.q_des):
             parser.error("--q-des must contain finite positions")
-    family = socket.AF_INET6 if address.version == 6 else socket.AF_INET
+    try:
+        family, _, _, _, endpoint = socket.getaddrinfo(args.host, args.port, type=socket.SOCK_DGRAM)[0]
+        address = ipaddress.ip_address(endpoint[0])
+        address = getattr(address, "ipv4_mapped", None) or address
+    except (OSError, ValueError) as error:
+        parser.error(f"--host must resolve to a unicast address: {error}")
+    if address.is_multicast or address.is_unspecified or str(address) == "255.255.255.255":
+        parser.error("--host must resolve to a unicast address")
     with socket.socket(family, socket.SOCK_DGRAM) as sock:
         sock.settimeout(args.timeout)
-        sock.connect((str(address), args.port))
+        sock.connect(endpoint)
 
         def exchange(payload):
             sock.send(json.dumps(payload, allow_nan=False).encode("utf-8"))

@@ -1,4 +1,4 @@
-"""Activation-scoped joint targets and an optional loopback UDP adapter.
+"""Activation-scoped joint targets and an optional explicitly bound UDP adapter.
 
 Targets are positions in radians, in the joint order chosen by the consuming
 state. Reception never implies that a command has been applied to the robot.
@@ -64,6 +64,7 @@ class JointTargetFrame:
 class _Snapshot:
     activation: int | None = None
     frame: JointTargetFrame | None = None
+    q_des: tuple[float, ...] | None = None
 
 
 class LatestJointTarget:
@@ -80,6 +81,10 @@ class LatestJointTarget:
         dimension: int,
         position_min: Sequence[float] | None = None,
         position_max: Sequence[float] | None = None,
+        *,
+        joint_names: Sequence[str] | None = None,
+        state_id: int | None = None,
+        state_key: str | None = None,
     ) -> None:
         self.dimension = _integer(dimension, "dimension", 1)
         self.position_min = self._bounds(position_min, "position_min")
@@ -87,6 +92,24 @@ class LatestJointTarget:
         if self.position_min is not None and self.position_max is not None:
             if any(lo > hi for lo, hi in zip(self.position_min, self.position_max)):
                 raise ValueError("position_min must not exceed position_max")
+        if joint_names is not None:
+            if isinstance(joint_names, (str, bytes)):
+                raise ValueError("joint_names must contain unique names matching dimension")
+            try:
+                joint_names = tuple(joint_names)
+            except TypeError as exc:
+                raise ValueError("joint_names must contain unique names matching dimension") from exc
+            if (len(joint_names) != self.dimension
+                    or any(not isinstance(name, str) or not name.strip() for name in joint_names)
+                    or len(set(joint_names)) != self.dimension):
+                raise ValueError("joint_names must contain unique names matching dimension")
+        self.joint_names = joint_names
+        self.state_id = None if state_id is None else _integer(state_id, "state_id", 0)
+        if self.state_id is not None and self.state_id > 65535:
+            raise ValueError("state_id must not exceed 65535")
+        if state_key is not None and (not isinstance(state_key, str) or not state_key.strip()):
+            raise ValueError("state_key must be a nonempty string")
+        self.state_key = state_key
         self._lock = threading.Lock()
         # An opaque random starting point isolates separate state objects and
         # process restarts sharing an endpoint. Leave room for increments while
@@ -124,6 +147,36 @@ class LatestJointTarget:
     def latest(self) -> JointTargetFrame | None:
         return self._snapshot.frame
 
+    def status(self) -> dict:
+        """Read one immutable activation/receipt/command snapshot.
+
+        Sequence describes reception, while q_des describes the last command
+        accepted by the runtime. Neither is a measurement of physical tracking.
+        """
+        snapshot = self._snapshot
+        return {
+            "activation": snapshot.activation,
+            "dimension": self.dimension,
+            "joint_names": None if self.joint_names is None else list(self.joint_names),
+            "q_des": None if snapshot.q_des is None else list(snapshot.q_des),
+            "sequence": None if snapshot.frame is None else snapshot.frame.sequence,
+            "state_id": self.state_id,
+            "state_key": self.state_key,
+        }
+
+    def record_applied(self, activation: int, q_des: Sequence[float]) -> bool:
+        """Record a committed command only in the activation that prepared it."""
+        activation = _integer(activation, "activation", 1)
+        positions = _positions(q_des, "q_des")
+        if len(positions) != self.dimension:
+            raise ValueError(f"q_des must contain {self.dimension} positions")
+        with self._lock:
+            current = self._snapshot
+            if current.activation != activation:
+                return False
+            self._snapshot = _Snapshot(current.activation, current.frame, positions)
+            return True
+
     def publish(self, frame: JointTargetFrame) -> bool:
         """Accept a valid newer target; return False for inactive or stale frames.
 
@@ -146,7 +199,7 @@ class LatestJointTarget:
                 return False
             if current.frame is not None and frame.sequence <= current.frame.sequence:
                 return False
-            self._snapshot = _Snapshot(current.activation, frame)
+            self._snapshot = _Snapshot(current.activation, frame, current.q_des)
             return True
 
 
@@ -154,8 +207,21 @@ TARGET_SCHEMA = "cadence.joint-target.v1"
 TARGET_SCHEMAS = (JOINT_TARGET_SCHEMA, TARGET_SCHEMA)
 
 
+def _bind_address(host):
+    if not isinstance(host, str) or not host.strip():
+        raise ValueError("upper target receiver requires an explicit unicast IP address or wildcard")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise ValueError("upper target receiver requires an explicit unicast IP address or wildcard") from exc
+    routed = getattr(address, "ipv4_mapped", None) or address
+    if routed.is_multicast or str(routed) == "255.255.255.255":
+        raise ValueError("upper target receiver requires a unicast IP address or wildcard")
+    return address
+
+
 class JointTargetUdpReceiver:
-    """An explicitly started, loopback-only JSON adapter for a target mailbox.
+    """An explicitly started JSON adapter on an IPv4/IPv6 address or wildcard.
 
     A status request is {"schema": "cadence.joint-target.v1", "type": "status"}.
     A target request adds type="target", activation, sequence, and q_des. The
@@ -168,12 +234,7 @@ class JointTargetUdpReceiver:
         targets: LatestJointTarget,
         bind: tuple[str, int] = ("127.0.0.1", 0),
     ) -> None:
-        try:
-            address = ipaddress.ip_address(bind[0])
-        except ValueError as exc:
-            raise ValueError("upper target receiver requires a loopback IP address") from exc
-        if not address.is_loopback:
-            raise ValueError("upper target receiver requires a loopback IP address")
+        address = _bind_address(bind[0])
         port = _integer(bind[1], "port", 0)
         if port > 65535:
             raise ValueError("port must not exceed 65535")
@@ -239,8 +300,7 @@ class JointTargetUdpReceiver:
                 return {
                     "schema": schema,
                     "type": "status",
-                    "activation": self.targets.activation,
-                    "dimension": self.targets.dimension,
+                    **self.targets.status(),
                 }
             if kind != "target":
                 raise ValueError("request type must be status or target")

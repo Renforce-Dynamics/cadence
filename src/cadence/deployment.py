@@ -177,11 +177,10 @@ def prepare_deployment(resolved):
     catalog.canonical_key(cfg["runtime"]["start_state"])
     upper = cfg["runtime"].get("upper_target_udp")
     if upper is not None:
-        import ipaddress
+        from .motion.targets import _bind_address
         validate_keys(upper, {"state", "host", "port"}, required={"state", "host", "port"}, label="runtime.upper_target_udp")
         catalog.canonical_key(upper["state"])
-        if not ipaddress.ip_address(upper["host"]).is_loopback:
-            raise ConfigError("upper target receiver requires a loopback IP address")
+        _bind_address(upper["host"])
         if type(upper["port"]) is not int or not 0 <= upper["port"] <= 65535:
             raise ConfigError("upper target port must be an integer in [0, 65535]")
     raw = cfg["backend"]

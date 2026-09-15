@@ -175,6 +175,8 @@ def test_udp_protocol_receipt_is_not_execution_and_old_activation_is_rejected():
             "type": "status",
             "activation": first,
             "dimension": 2,
+            "joint_names": None, "q_des": None, "sequence": None,
+            "state_id": None, "state_key": None,
         }
         frame = {
             "schema": TARGET_SCHEMA,
@@ -205,9 +207,16 @@ def test_udp_protocol_receipt_is_not_execution_and_old_activation_is_rejected():
     assert mailbox.latest() is not None  # Only the state controls activation.
 
 
-@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.2", "::", "example.com"])
-def test_udp_receiver_rejects_non_loopback_bind(host):
-    with pytest.raises(ValueError, match="loopback"):
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.2", "::", "2001:db8::1"])
+def test_udp_receiver_accepts_explicit_unicast_and_wildcard_without_opening_a_socket(host):
+    receiver = JointTargetUdpReceiver(LatestJointTarget(2), bind=(host, 50620))
+    assert receiver.address is None
+    assert receiver.bind == (host, 50620)
+
+
+@pytest.mark.parametrize("host", ["example.com", "224.0.0.1", "ff02::1", "255.255.255.255", True, 123])
+def test_udp_receiver_rejects_non_ip_and_non_unicast_bind(host):
+    with pytest.raises(ValueError, match="IP address"):
         JointTargetUdpReceiver(LatestJointTarget(2), bind=(host, 50620))
 
 
