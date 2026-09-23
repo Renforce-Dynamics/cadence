@@ -1,10 +1,9 @@
 """Lower-joint velocity observation history for A3 lower-only actors.
 
-Shared by the H32 EstMoE and H4 MLP deployment contracts: gyro, projected
-gravity, default-relative joint position, joint velocity and executed action,
-each term oldest first, followed by the current velocity command verbatim.
-Input scaling or normalization lives inside each model; this builder only
-validates and clips.
+The deployment contract: gyro, projected gravity, default-relative joint
+position, joint velocity and executed action, each term oldest first,
+followed by the current velocity command verbatim. Input scaling or
+normalization lives inside each model; this builder only validates and clips.
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ from ..a3 import (
 
 LOWER_VELOCITY_TERM_WIDTHS = (3, 3, LOWER_ACTION_DIM, LOWER_ACTION_DIM, LOWER_ACTION_DIM)
 LOWER_VELOCITY_H32_HISTORY_FRAMES = 32
-LOWER_VELOCITY_MLP_H4_HISTORY_FRAMES = 4
 
 
 def lower_velocity_observation_dim(history_frames: int) -> int:
@@ -31,9 +29,6 @@ def lower_velocity_observation_dim(history_frames: int) -> int:
 
 LOWER_VELOCITY_H32_OBSERVATION_DIM = lower_velocity_observation_dim(
     LOWER_VELOCITY_H32_HISTORY_FRAMES
-)
-LOWER_VELOCITY_MLP_H4_OBSERVATION_DIM = lower_velocity_observation_dim(
-    LOWER_VELOCITY_MLP_H4_HISTORY_FRAMES
 )
 
 
