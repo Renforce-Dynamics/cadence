@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from cadence.motion import a3, a3_estmoe
+from cadence.motion import a3, a3_lower
 
 
 def _frame(index=0, **kwargs):
@@ -234,7 +234,7 @@ def _build_h32(builder, index):
 
 
 def test_h32_first_frame_backfills_every_term_history():
-    builder = a3_estmoe.LowerVelocityH32ObservationBuilder()
+    builder = a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=32)
     observation = _build_h32(builder, 0)
     assert len(observation) == 1635
     robot = _frame(0).robot_state
@@ -252,7 +252,7 @@ def test_h32_first_frame_backfills_every_term_history():
 
 
 def test_h32_history_evicts_oldest_frame_beyond_32_ticks():
-    builder = a3_estmoe.LowerVelocityH32ObservationBuilder()
+    builder = a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=32)
     for index in range(33):
         observation = _build_h32(builder, index)
     gyro = np.array(observation[0:96]).reshape(32, 3)
@@ -263,8 +263,8 @@ def test_h32_history_evicts_oldest_frame_beyond_32_ticks():
 
 
 def test_h32_history_rollback_and_reset_reproduce_the_accepted_sequence():
-    builder = a3_estmoe.LowerVelocityH32ObservationBuilder()
-    fresh = a3_estmoe.LowerVelocityH32ObservationBuilder()
+    builder = a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=32)
+    fresh = a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=32)
     _build_h32(builder, 0)
     snapshot = builder.snapshot()
     rejected = _build_h32(builder, 1)
@@ -281,7 +281,7 @@ def test_h32_history_rollback_and_reset_reproduce_the_accepted_sequence():
     ("joint_vel", (float("inf"),) * 15),
 ])
 def test_h32_invalid_measurement_does_not_pollute_history(field, value):
-    builder = a3_estmoe.LowerVelocityH32ObservationBuilder()
+    builder = a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=32)
     _build_h32(builder, 0)
     previous = builder.snapshot()
     robot = _frame(1).robot_state
@@ -319,7 +319,7 @@ def _cached_adapter32(tmp_path, *, action=None, spec=None):
         received.append(config)
         return spec, runner
 
-    adapter = a3_estmoe.A3LowerEstMoEPolicy(
+    adapter = a3_lower.A3LowerEstMoEPolicy(
         _config32(model), SimpleNamespace(policies=SimpleNamespace(load=load))
     )
     return adapter, runner, received
@@ -401,8 +401,8 @@ def test_h32_adapter_loads_cadence_runner_without_application_services(tmp_path,
         received.append(args)
         return SimpleNamespace(infer=lambda obs: np.zeros(15))
 
-    monkeypatch.setattr(a3_estmoe.policy, "OnnxPolicy", create)
-    adapter = a3_estmoe.A3LowerEstMoEPolicy(_config32(model), SimpleNamespace())
+    monkeypatch.setattr(a3_lower.estmoe, "OnnxPolicy", create)
+    adapter = a3_lower.A3LowerEstMoEPolicy(_config32(model), SimpleNamespace())
     assert received[0][:3] == (model, 1635, 15)
     assert adapter.infer(_frame(), np.zeros(29))[0].shape == (15,)
 
@@ -413,18 +413,18 @@ def test_h32_adapter_rejects_non_32_history(tmp_path):
     config = _config32(model)
     config.lower.history_frames = 4
     with pytest.raises(ValueError, match="history_frames=32"):
-        a3_estmoe.A3LowerEstMoEPolicy(config, SimpleNamespace(policies=SimpleNamespace(load=None)))
+        a3_lower.A3LowerEstMoEPolicy(config, SimpleNamespace(policies=SimpleNamespace(load=None)))
 
 
 @pytest.mark.parametrize('model', ['pkg://cadence/__init__.py', 'artifact://actor'])
 def test_h32_adapter_rejects_resource_uris(model):
     with pytest.raises(ValueError, match='explicit filesystem path'):
-        a3_estmoe.A3LowerEstMoEPolicy(_config32(model), SimpleNamespace())
+        a3_lower.A3LowerEstMoEPolicy(_config32(model), SimpleNamespace())
 
 
 def test_root_a3_estmoe_actor_preserves_deployed_action_values():
     pytest.importorskip("onnxruntime")
-    adapter = a3_estmoe.A3LowerEstMoEPolicy(
+    adapter = a3_lower.A3LowerEstMoEPolicy(
         _config32(
             Path(__file__).resolve().parents[1] / "models/a3_loco_lower_estmoe_h32.onnx"
         ),
@@ -443,4 +443,148 @@ def test_root_a3_estmoe_actor_preserves_deployed_action_values():
         -0.005238550, 0.282683074, -0.020015270, -0.138580650, -0.539466500,
         0.337088168, -0.132470980, 0.022386385, -0.011797843, 0.420523077,
         -0.776185155, -0.306916654, -0.136782631, 0.085067093, -0.233053312,
+    ], rtol=2e-5, atol=2e-6)
+
+
+def _config_h4_mlp(model):
+    return SimpleNamespace(
+        robot=SimpleNamespace(
+            default_position=np.array(a3.DEFAULT_JOINT_POSITION),
+            lower_joints=np.arange(15), upper_joints=np.arange(15, 29),
+        ),
+        lower=SimpleNamespace(
+            model=str(model), runtime={}, history_frames=4,
+            mask_upper_observation=False,
+        ),
+    )
+
+
+def _cached_mlp_adapter(tmp_path, *, action=None, spec=None):
+    model = tmp_path / "actor.onnx"
+    model.touch()
+    runner = SimpleNamespace(infer=lambda obs: np.zeros(15) if action is None else action)
+    spec = spec or SimpleNamespace(observation_dimension=207, action_dimension=15)
+    received = []
+
+    def load(config):
+        received.append(config)
+        return spec, runner
+
+    adapter = a3_lower.A3LowerMlpPolicy(
+        _config_h4_mlp(model), SimpleNamespace(policies=SimpleNamespace(load=load))
+    )
+    return adapter, runner, received
+
+
+def test_mlp_h4_first_frame_backfills_every_term_history():
+    builder = a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=4)
+    robot = _frame(0).robot_state
+    observation = builder.build(
+        robot.gyro_b, robot.quaternion_wxyz,
+        robot.joint_pos[:15], robot.joint_vel[:15],
+        np.zeros(15), (0.5, -0.25, 0.125),
+    )
+    assert len(observation) == 207
+    gyro = np.array(observation[0:12]).reshape(4, 3)
+    np.testing.assert_allclose(gyro, np.tile(np.clip(robot.gyro_b, -100, 100), (4, 1)))
+    np.testing.assert_allclose(
+        np.array(observation[12:24]).reshape(4, 3), np.tile((0, 0, -1), (4, 1))
+    )
+    q_rel = np.array(observation[24:84]).reshape(4, 15)
+    np.testing.assert_allclose(q_rel, np.tile((np.arange(15) - 14) * 0.125, (4, 1)))
+    np.testing.assert_allclose(observation[144:204], 0)
+    assert observation[204:207] == (0.5, -0.25, 0.125)
+
+
+def test_mlp_h4_history_evicts_oldest_frame_beyond_four_ticks():
+    builder = a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=4)
+    for index in range(5):
+        observation = _build_h32(builder, index)
+    gyro = np.array(observation[0:12]).reshape(4, 3)
+    np.testing.assert_allclose(
+        gyro,
+        [np.clip(_frame(index).robot_state.gyro_b, -100, 100) for index in range(1, 5)],
+    )
+
+
+def test_mlp_h4_builder_rejects_bad_history_frames():
+    with pytest.raises(ValueError, match="positive integer"):
+        a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=0)
+    with pytest.raises(ValueError, match="positive integer"):
+        a3_lower.LowerVelocityHistoryObservationBuilder(history_frames=True)
+
+
+def test_mlp_adapter_accepts_application_cache(tmp_path):
+    adapter, runner, received = _cached_mlp_adapter(tmp_path)
+    assert adapter.policy is runner
+    assert received[0].policy_key == "velocity_lower_mlp_h4"
+    _, observation = adapter.infer(_frame(velocity_command=(0.5, -0.25, 0.125)), np.zeros(29))
+    assert len(observation) == 207
+    assert observation[-3:] == (0.5, -0.25, 0.125)
+
+
+def test_mlp_adapter_history_rollback_excludes_rejected_frame(tmp_path):
+    adapter, _, _ = _cached_mlp_adapter(tmp_path)
+    adapter.infer(_frame(0), np.zeros(29))
+    snapshot = adapter.snapshot()
+    _, rejected_obs = adapter.infer(_frame(1), np.zeros(29))
+    adapter.restore(snapshot)
+    _, retried_obs = adapter.infer(_frame(1), np.zeros(29))
+    assert retried_obs == rejected_obs
+    adapter.reset()
+    assert adapter.snapshot() == ((),) * 5
+
+
+@pytest.mark.parametrize("action", [np.zeros(14), np.zeros((1, 15)), np.full(15, np.nan)])
+def test_mlp_adapter_rejects_invalid_actor_output(tmp_path, action):
+    adapter, _, _ = _cached_mlp_adapter(tmp_path, action=action)
+    with pytest.raises(RuntimeError, match="15 finite actions"):
+        adapter.infer(_frame(), np.zeros(29))
+
+
+@pytest.mark.parametrize("spec", [
+    SimpleNamespace(observation_dimension=1635, action_dimension=15),
+    SimpleNamespace(observation_dimension=207, action_dimension=29),
+])
+def test_mlp_adapter_validates_loaded_model_contract(tmp_path, spec):
+    with pytest.raises(ValueError, match="207 observations and 15 actions"):
+        _cached_mlp_adapter(tmp_path, spec=spec)
+
+
+def test_mlp_adapter_rejects_non_4_history(tmp_path):
+    model = tmp_path / "actor.onnx"
+    model.touch()
+    config = _config_h4_mlp(model)
+    config.lower.history_frames = 32
+    with pytest.raises(ValueError, match="history_frames=4"):
+        a3_lower.A3LowerMlpPolicy(config, SimpleNamespace(policies=SimpleNamespace(load=None)))
+
+
+@pytest.mark.parametrize('model', ['pkg://cadence/__init__.py', 'artifact://actor'])
+def test_mlp_adapter_rejects_resource_uris(model):
+    with pytest.raises(ValueError, match='explicit filesystem path'):
+        a3_lower.A3LowerMlpPolicy(_config_h4_mlp(model), SimpleNamespace())
+
+
+def test_root_a3_mlp_h4_actor_preserves_deployed_action_values():
+    pytest.importorskip("onnxruntime")
+    adapter = a3_lower.A3LowerMlpPolicy(
+        _config_h4_mlp(
+            Path(__file__).resolve().parents[1] / "models/a3_loco_lower_mlp_h4_fulldr.onnx"
+        ),
+        SimpleNamespace(),
+    )
+    frame = SimpleNamespace(
+        robot_state=SimpleNamespace(
+            gyro_b=(0, 0, 0), quaternion_wxyz=(1, 0, 0, 0),
+            joint_pos=a3.DEFAULT_JOINT_POSITION, joint_vel=np.zeros(29),
+        ),
+        velocity_command=(0.4, -0.2, 0.1),
+    )
+    action, _ = adapter.infer(frame, np.zeros(29))
+    # Recorded from the deployed H4 MLP model on the same neutral frame.
+    np.testing.assert_allclose(action, [
+        0.134606689, 0.185871527, 0.102564059, -0.269335032, -0.442413628,
+        0.068141036, -0.139454275, 0.213159233, -0.154226914, -0.040026292,
+        -0.648934066, -0.221406475, -0.126430899, 0.158506542, -0.183171257,
     ], rtol=2e-5, atol=2e-6)

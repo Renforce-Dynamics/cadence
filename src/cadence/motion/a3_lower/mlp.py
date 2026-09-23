@@ -1,4 +1,4 @@
-"""A3 H32 lower-only EstMoE policy adapter for the generic motion states."""
+"""A3 H4 lower-only supervised MLP policy adapter for the generic motion states."""
 
 from __future__ import annotations
 
@@ -6,38 +6,39 @@ from pathlib import Path
 
 import numpy as np
 
-from ..a3 import ACTION_DIM, LOWER_ACTION_DIM, _PolicyConfig, _PolicySpec, _vector
 from cadence.inference import OnnxPolicy, OnnxRuntimeOptions
+
+from ..a3 import ACTION_DIM, LOWER_ACTION_DIM, _PolicyConfig, _PolicySpec, _vector
 from .observation import (
-    LOWER_VELOCITY_H32_HISTORY_FRAMES,
-    LOWER_VELOCITY_H32_OBSERVATION_DIM,
-    LowerVelocityH32ObservationBuilder,
+    LOWER_VELOCITY_MLP_H4_HISTORY_FRAMES,
+    LOWER_VELOCITY_MLP_H4_OBSERVATION_DIM,
+    LowerVelocityHistoryObservationBuilder,
 )
 
 
-class A3LowerEstMoEPolicy:
-    """Adapt motion frames to the A3 H32 lower-only EstMoE actor.
+class A3LowerMlpPolicy:
+    """Adapt motion frames to the A3 H4 lower-only MLP actor.
 
-    The actor observes legs and waist only, so arm joints never enter the
-    observation and no masking option exists. The 3-value velocity command is
-    appended directly instead of the legacy 25-value context ABI.
-    Observation history always belongs to this adapter.
+    Same lower-only observation family as the EstMoE adapter but with a
+    four-frame history; the model normalizes observations internally with its
+    trained running statistics. Arm joints never enter the observation and no
+    masking option exists. Observation history always belongs to this adapter.
     """
 
-    observation_kind = "velocity_lower_h32"
+    observation_kind = "velocity_lower_mlp_h4"
 
     def __init__(self, config, services) -> None:
         robot = config.robot
         if len(robot.default_position) != ACTION_DIM:
-            raise ValueError("A3 lower EstMoE policy requires the 29-joint robot contract")
+            raise ValueError("A3 lower MLP policy requires the 29-joint robot contract")
         if tuple(robot.lower_joints) != tuple(range(LOWER_ACTION_DIM)) or tuple(
             robot.upper_joints
         ) != tuple(range(LOWER_ACTION_DIM, ACTION_DIM)):
             raise ValueError(
-                "A3 lower EstMoE policy requires legs/waist first, then 14 arm joints"
+                "A3 lower MLP policy requires legs/waist first, then 14 arm joints"
             )
-        if config.lower.history_frames != LOWER_VELOCITY_H32_HISTORY_FRAMES:
-            raise ValueError("A3 lower EstMoE policy requires history_frames=32")
+        if config.lower.history_frames != LOWER_VELOCITY_MLP_H4_HISTORY_FRAMES:
+            raise ValueError("A3 lower MLP policy requires history_frames=4")
         self.config = config
         options = config.lower.runtime
         if not isinstance(options, OnnxRuntimeOptions):
@@ -52,34 +53,35 @@ class A3LowerEstMoEPolicy:
         model = model.resolve()
         if not model.is_file():
             raise FileNotFoundError(model)
-        self.policy_config = _PolicyConfig(model, "velocity_lower_h32", options)
+        self.policy_config = _PolicyConfig(model, "velocity_lower_mlp_h4", options)
         self.policy_model = str(model)
         self.policy_spec = _PolicySpec(
-            key="velocity_lower_h32",
-            observation_key="velocity_lower_h32_1635",
-            observation_dimension=LOWER_VELOCITY_H32_OBSERVATION_DIM,
+            key="velocity_lower_mlp_h4",
+            observation_key="velocity_lower_mlp_h4_207",
+            observation_dimension=LOWER_VELOCITY_MLP_H4_OBSERVATION_DIM,
             action_dimension=LOWER_ACTION_DIM,
         )
         loader = getattr(getattr(services, "policies", None), "load", None)
         if loader is None:
             self.policy = OnnxPolicy(
-                model, LOWER_VELOCITY_H32_OBSERVATION_DIM, LOWER_ACTION_DIM, options
+                model, LOWER_VELOCITY_MLP_H4_OBSERVATION_DIM, LOWER_ACTION_DIM, options
             )
             # Session initialization and first inference happen before a state
             # enters the control loop. Application caches may warm their own
             # runners when load() is called.
-            self.policy.infer(np.zeros(LOWER_VELOCITY_H32_OBSERVATION_DIM, dtype=np.float32))
+            self.policy.infer(np.zeros(LOWER_VELOCITY_MLP_H4_OBSERVATION_DIM, dtype=np.float32))
         else:
             self.policy_spec, self.policy = loader(self.policy_config)
             if (
-                self.policy_spec.observation_dimension != LOWER_VELOCITY_H32_OBSERVATION_DIM
+                self.policy_spec.observation_dimension != LOWER_VELOCITY_MLP_H4_OBSERVATION_DIM
                 or self.policy_spec.action_dimension != LOWER_ACTION_DIM
             ):
                 raise ValueError(
-                    "A3 lower EstMoE policy requires 1635 observations and 15 actions"
+                    "A3 lower MLP policy requires 207 observations and 15 actions"
                 )
-        self.observations = LowerVelocityH32ObservationBuilder(
-            np.asarray(robot.default_position)[:LOWER_ACTION_DIM]
+        self.observations = LowerVelocityHistoryObservationBuilder(
+            np.asarray(robot.default_position)[:LOWER_ACTION_DIM],
+            history_frames=LOWER_VELOCITY_MLP_H4_HISTORY_FRAMES,
         )
 
     def reset(self) -> None:
@@ -105,5 +107,5 @@ class A3LowerEstMoEPolicy:
         )
         action = np.asarray(self.policy.infer(observation), dtype=np.float32)
         if action.shape != (LOWER_ACTION_DIM,) or not np.all(np.isfinite(action)):
-            raise RuntimeError("A3 lower EstMoE policy must return 15 finite actions")
+            raise RuntimeError("A3 lower MLP policy must return 15 finite actions")
         return action, observation

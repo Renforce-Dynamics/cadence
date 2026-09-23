@@ -1,8 +1,16 @@
-"""H32 lower-only observation contract for the A3 EstMoE velocity actor."""
+"""Lower-joint velocity observation history for A3 lower-only actors.
+
+Shared by the H32 EstMoE and H4 MLP deployment contracts: gyro, projected
+gravity, default-relative joint position, joint velocity and executed action,
+each term oldest first, followed by the current velocity command verbatim.
+Input scaling or normalization lives inside each model; this builder only
+validates and clips.
+"""
 
 from __future__ import annotations
 
 from collections import deque
+from numbers import Integral
 
 from ..a3 import (
     DEFAULT_JOINT_POSITION,
@@ -12,30 +20,40 @@ from ..a3 import (
     _vector,
 )
 
+LOWER_VELOCITY_TERM_WIDTHS = (3, 3, LOWER_ACTION_DIM, LOWER_ACTION_DIM, LOWER_ACTION_DIM)
 LOWER_VELOCITY_H32_HISTORY_FRAMES = 32
-LOWER_VELOCITY_H32_TERM_WIDTHS = (3, 3, LOWER_ACTION_DIM, LOWER_ACTION_DIM, LOWER_ACTION_DIM)
-LOWER_VELOCITY_H32_OBSERVATION_DIM = (
-    sum(LOWER_VELOCITY_H32_TERM_WIDTHS) * LOWER_VELOCITY_H32_HISTORY_FRAMES + 3
+LOWER_VELOCITY_MLP_H4_HISTORY_FRAMES = 4
+
+
+def lower_velocity_observation_dim(history_frames: int) -> int:
+    return sum(LOWER_VELOCITY_TERM_WIDTHS) * history_frames + 3
+
+
+LOWER_VELOCITY_H32_OBSERVATION_DIM = lower_velocity_observation_dim(
+    LOWER_VELOCITY_H32_HISTORY_FRAMES
+)
+LOWER_VELOCITY_MLP_H4_OBSERVATION_DIM = lower_velocity_observation_dim(
+    LOWER_VELOCITY_MLP_H4_HISTORY_FRAMES
 )
 
 
-class LowerVelocityH32ObservationBuilder:
-    """H32 term-major history over the 15 lower joints, then the 3-D command.
+class LowerVelocityHistoryObservationBuilder:
+    """Term-major history over the 15 lower joints, then the 3-D command."""
 
-    EstMoE deployment contract: gyro, projected gravity, default-relative
-    joint position, joint velocity and executed action, each oldest first
-    over 32 frames, followed by the current velocity command verbatim. Input
-    scaling lives inside the model; this builder only validates and clips.
-    """
-
-    def __init__(self, default_lower_position=None) -> None:
+    def __init__(self, default_lower_position=None, *, history_frames) -> None:
+        if (
+            isinstance(history_frames, bool)
+            or not isinstance(history_frames, Integral)
+            or history_frames < 1
+        ):
+            raise ValueError("history_frames must be a positive integer")
         if default_lower_position is None:
             default_lower_position = DEFAULT_JOINT_POSITION[:LOWER_ACTION_DIM]
         self.default_lower_position = _vector(
             default_lower_position, LOWER_ACTION_DIM, "default_lower_position"
         )
-        self.history_length = LOWER_VELOCITY_H32_HISTORY_FRAMES
-        self.observation_dimension = LOWER_VELOCITY_H32_OBSERVATION_DIM
+        self.history_length = int(history_frames)
+        self.observation_dimension = lower_velocity_observation_dim(self.history_length)
         self.reset()
 
     def reset(self) -> None:
@@ -45,10 +63,10 @@ class LowerVelocityH32ObservationBuilder:
         return tuple(tuple(history) for history in self._histories)
 
     def restore(self, snapshot) -> None:
-        if len(snapshot) != len(LOWER_VELOCITY_H32_TERM_WIDTHS):
+        if len(snapshot) != len(LOWER_VELOCITY_TERM_WIDTHS):
             raise ValueError("observation history snapshot has wrong term count")
         histories = []
-        for frames, size in zip(snapshot, LOWER_VELOCITY_H32_TERM_WIDTHS):
+        for frames, size in zip(snapshot, LOWER_VELOCITY_TERM_WIDTHS):
             if len(frames) not in (0, self.history_length):
                 raise ValueError("observation history snapshot has wrong frame count")
             histories.append(deque(
