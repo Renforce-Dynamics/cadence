@@ -42,7 +42,7 @@ def test_repository_has_one_configuration_tree():
     assert not list((ROOT / 'src').rglob('*.yaml'))
     assert not list((ROOT / 'src').rglob('*.yml'))
     entries = sorted((ROOT / 'configs/entry').rglob('entry_*.yaml'))
-    assert len(entries) == 14
+    assert len(entries) == 15
     assert not list((ROOT / 'configs/entry').glob('*.yaml'))
     for entry in entries:
         if entry.name in SERVICE_ENTRIES:

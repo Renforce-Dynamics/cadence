@@ -86,3 +86,44 @@ Known limitations: the serial-ankle approximation makes the sim softer than
 hardware (closed-chain stiffness is not modeled); the walk clip's root
 translation is tracked only implicitly through the policy (no world-frame
 localization feedback is used by the state).
+
+## Watching the sim
+
+**Live viewer.** `configs/entry/a3/mock/entry_a3_sonic_sim_view.yaml` is the
+sim entry with `runtime.headless: false`; the runtime launches
+`mujoco.viewer.launch_passive` and steps physics under the viewer:
+
+```bash
+./scripts/run.sh --config configs/entry/a3/mock/entry_a3_sonic_sim_view.yaml
+```
+
+Constraints: on **macOS the interactive viewer requires `mjpython`** (the
+mujoco package's main-thread launcher) — run `.venv/bin/mjpython -m cadence
+run --config ...` instead of `run.sh`, and only from a desktop session with a
+window server; in ssh/agent sessions without a GUI context, mjpython fails
+hard (observed: segfault before any output). Plain `run.sh` fails fast with
+"`launch_passive` requires that the Python script be run under `mjpython` on
+macOS". On **Linux** a local desktop session works with the stock
+`mjpython`/`run.sh`; **X11 forwarding is not an option** — the viewer renders
+client-side via GLFW/OpenGL, so headless machines should use the offline
+render below instead.
+
+**Offline render.** `scripts/render_sonic_sim.py` drives the same in-process
+sim chain (fixedpos gate → sonic_clip) and writes an h264 mp4 through
+`imageio-ffmpeg` (dev dependency, install with
+`uv pip install --python .venv/bin/python imageio-ffmpeg`; the script fails
+with a clear message if missing). A pelvis-tracking camera keeps the robot in
+frame, with a small time/substate overlay; metrics print at the end.
+
+```bash
+scripts/render_sonic_sim.py --clip BMD_0319_stand.npz --seconds 12 \
+    --out /tmp/stand_12s.mp4
+scripts/render_sonic_sim.py --clip 001_walk_front_slow.npz --seconds 15 \
+    --out /tmp/walk_15s.mp4   # --fps/--width/--height adjustable
+```
+
+Reference renders live outside the repository in the workspace:
+`/Users/zaterval/Projects/basketball/renders/sonic_sim2sim/stand_12s.mp4`
+(z ∈ [0.857, 0.861], RMSE 0.033 rad) and `walk_15s.mp4`
+(z ∈ [0.822, 0.862], RMSE 0.064 rad). Clip mode only; rendering the stream
+state (its delay line runs on wall-clock time) is not supported.

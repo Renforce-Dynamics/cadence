@@ -1,0 +1,14 @@
+# MuJoCo closed-loop SONIC entry with the interactive viewer (desktop only).
+# deployment.py launches mujoco.viewer.launch_passive when backend is mujoco
+# and runtime.headless is false; the viewer needs a local GUI session (no
+# X11 forwarding).
+extends:
+- ../../../runtime/control.yaml
+- ../../../robots/a3.yaml
+- ../../../backends/a3_mujoco.yaml
+- ../../../inputs/operator.yaml
+runtime:
+  state_registry_config: ../../../state_registries/a3_operator_sonic_sim.yaml
+  start_state: fixedpos
+  duration_s: 0
+  headless: false

@@ -2,7 +2,7 @@
   <compiler angle="radian" meshdir="." autolimits="true" />
   <option timestep="0.001" />
   <visual>
-    <global azimuth="150" elevation="-20" />
+    <global azimuth="150" elevation="-20" offwidth="1920" offheight="1080" />
     <headlight ambient="0.3 0.3 0.3" diffuse="0.6 0.6 0.6" specular="0 0 0" />
     <scale forcewidth="0.03" contactwidth="0.01" contactheight="0.02" com="1" framelength="0.6" framewidth="0.05" />
     <rgba haze="0.15 0.25 0.35 1" com="0.502 1 0 0.5" contactpoint="1 1 0.6 0.4" contactforce="0.98 0.4 0.4 1" />

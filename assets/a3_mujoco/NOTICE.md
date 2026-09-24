@@ -21,5 +21,7 @@ Adaptations in `a3.xml` relative to
 - Pelvis IMU gyro sensor noise removed for deterministic simulation.
 - Pelvis start height set to 1.069 m (sole contact at the default pose;
   matches the source model's own stand keyframe).
+- `<visual><global>` gains `offwidth/offheight="1920x1080"` so offscreen
+  rendering at up to 1080p works (`scripts/render_sonic_sim.py`).
 - Passive compliant-foot joints are kept unactuated with their fitted
   springs; head joints remain locked as in the source model.
