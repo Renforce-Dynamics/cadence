@@ -1,0 +1,26 @@
+# sonic_clip: play one converted motion clip through the SONIC 035 a3_fast
+# whole-body actor (state id 6). Ramps onto clip frame 0, plays at 50 Hz,
+# then holds the final frame (or hands off per clip.on_finish).
+mode: clip
+entry_smoothing_s: 0.1
+resources:
+  model: ../../models/model_step_200000_a3_fast.onnx
+  clip: ../../data/motions/001_walk_front_slow.npz
+clip:
+  ramp_s: 1.0
+  # The 035 a3_fast actor was trained with a3_fast_dt_future_ref_frames=0.02:
+  # its 10 future reference frames are spaced 20 ms (1 policy tick) apart.
+  future_frame_skip: 1
+  on_finish: hold
+policy:
+  runtime:
+    intra_op_threads: 1
+    inter_op_threads: 1
+    execution_mode: sequential
+    allow_spinning: false
+control:
+  kp: [80.0, 120.0, 80.0, 250.0, 60.0, 60.0, 80.0, 120.0, 80.0, 250.0, 60.0, 60.0, 85.0, 50.0, 50.0, 40.0, 40.0, 30.0, 30.0, 30.0, 20.0, 20.0, 40.0, 40.0, 30.0, 30.0, 30.0, 20.0, 20.0]
+  kd: [3.0, 4.0, 3.0, 8.0, 1.2, 1.2, 3.0, 4.0, 3.0, 8.0, 1.2, 1.2, 3.0, 2.0, 2.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+robot:
+  position_min: [-2.51327, -0.523599, -2.72271, -0.122173, -0.907571, -0.349066, -2.51327, -1.6057, -2.72271, -0.122173, -0.907571, -0.349066, -2.61799, -0.349066, -0.488692, -2.87979, -0.0872665, -2.79253, -0.959931, -2.79253, -1.62316, -1.62316, -2.87979, -2.61799, -2.79253, -0.959931, -2.79253, -1.62316, -1.62316]
+  position_max: [2.93215, 1.6057, 2.72271, 2.49582, 0.523599, 0.349066, 2.93215, 0.523599, 2.72271, 2.49582, 0.523599, 0.349066, 2.61799, 0.349066, 0.418879, 2.87979, 2.61799, 2.79253, 1.74533, 2.79253, 1.62316, 1.62316, 2.87979, 0.0872665, 2.79253, 1.74533, 2.79253, 1.62316, 1.62316]

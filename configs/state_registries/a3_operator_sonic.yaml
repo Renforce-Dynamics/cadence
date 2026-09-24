@@ -1,0 +1,11 @@
+# Operator chain plus the SONIC whole-body tracking states.
+extends: a3_operator.yaml
+states:
+  6:
+    key: sonic_clip
+    factory: cadence.sonic:SonicTrackState
+    config: ../states/a3_sonic_clip.yaml
+  7:
+    key: sonic_stream
+    factory: cadence.sonic:SonicTrackState
+    config: ../states/a3_sonic_stream.yaml

@@ -1,0 +1,6 @@
+# Sim variant: PD_STAND bring-up gains for the non-policy PD phases. The
+# serial-ankle MJCF approximation cannot hold a ramp with the soft 024 policy
+# gains (ankle kp 60); production SONIC brings the real robot up with PD_STAND
+# gains for the same reason. Policy phases still use control.kp/kd (024).
+extends: a3_sonic_clip.yaml
+entry_gains: pd_stand

@@ -1,0 +1,12 @@
+# MuJoCo closed-loop SONIC entry (headless, no hardware). Starts in fixedpos:
+# in damping the simulated robot falls before the first request arrives, and
+# ramping from the fallen pose passes through out-of-limit commands.
+extends:
+- ../../../runtime/control.yaml
+- ../../../robots/a3.yaml
+- ../../../backends/a3_mujoco.yaml
+- ../../../inputs/operator.yaml
+runtime:
+  state_registry_config: ../../../state_registries/a3_operator_sonic_sim.yaml
+  start_state: fixedpos
+  duration_s: 0

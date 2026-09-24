@@ -1,0 +1,41 @@
+# A3 MuJoCo sim2sim backend: full-body physics for the SONIC states.
+# The MJCF drives the serial policy joints directly; the real robot's ankle
+# and waist closed chains are approximated (see assets/a3_mujoco/NOTICE.md).
+backend:
+  kind: mujoco
+  model: ../../assets/a3_mujoco/a3.xml
+  physics_timestep_s: 0.001
+  # SONIC default stand pose in the canonical cadence joint order.
+  initial_joint_position:
+  - -0.1311
+  - 0.0056
+  - -0.0348
+  - 0.2468
+  - -0.1204
+  - -0.0078
+  - -0.1311
+  - -0.0056
+  - 0.0348
+  - 0.2468
+  - -0.1204
+  - 0.0078
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.3
+  - 0.12
+  - 0.0
+  - 0.8
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.3
+  - -0.12
+  - 0.0
+  - 0.8
+  - 0.0
+  - 0.0
+  - 0.0
+  gyro_sensor: pelvis-angular-velocity
+  quaternion_sensor: pelvis-orientation
+  root_site: imu_in_pelvis
