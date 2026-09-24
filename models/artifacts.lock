@@ -2,6 +2,7 @@
   "version": 1,
   "sha256": {
     "a3_loco_lower.onnx": "4b8e7ec609754575e60ef3fc307c4964b8074e6c7adeb147b8d9d044ab308e88",
-    "a3_loco_lower_estmoe_h32.onnx": "4f9accabd04c74ef715079c0729c8caa26c01e6c28e3b780f2aeda69a0e2fcd1"
+    "a3_loco_lower_estmoe_h32.onnx": "4f9accabd04c74ef715079c0729c8caa26c01e6c28e3b780f2aeda69a0e2fcd1",
+    "model_step_200000_a3_fast.onnx": "66f967af0ebf791c31c3095bf1f0d38fc1bb1ca96f34a212161646e328aa804c"
   }
 }
