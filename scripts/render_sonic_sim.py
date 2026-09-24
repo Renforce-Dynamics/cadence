@@ -18,10 +18,15 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 from pathlib import Path
 import sys
 
 import numpy as np
+
+# Headless Linux defaults to EGL offscreen rendering (no X needed).
+if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+    os.environ.setdefault("MUJOCO_GL", "egl")
 
 ROOT = Path(__file__).resolve().parents[1]
 
