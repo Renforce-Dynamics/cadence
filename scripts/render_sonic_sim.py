@@ -3,7 +3,9 @@
 
 In-process driver: builds the deployment from the sim entry, steps the 50 Hz
 control loop manually (fixedpos entry gate -> sonic_clip), and renders frames
-with mujoco.Renderer through a pelvis-tracking side camera. Requires the
+with mujoco.Renderer through a pelvis-tracking side camera. Like
+verify_sonic_sim.py it bypasses the PLNJ operator ingress; it is a
+visualization aid, not joystick-chain validation. Requires the
 optional sim and inference extras plus imageio-ffmpeg (dev tool only; not a
 package dependency):
 

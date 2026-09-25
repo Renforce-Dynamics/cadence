@@ -2,7 +2,10 @@
 """Closed-loop MuJoCo verification driver for the SONIC states.
 
 Runs the real config chain (backend, registry, states, policy) in-process
-through cadence's execute_cycle, on sim time (deterministic, not wall-paced):
+through cadence's execute_cycle, on sim time (deterministic, not wall-paced).
+It constructs runtime input directly and bypasses the PLNJ operator ingress;
+joystick-chain validation is the task repository's full-chain harness (see
+docs/architecture.md, "Process topology and the sim2sim chain"). Stages:
 
   damping -> fixedpos (PD_STAND entry gate) -> sonic_clip(stand) 12 s
           -> fixedpos -> sonic_clip(walk) 15 s

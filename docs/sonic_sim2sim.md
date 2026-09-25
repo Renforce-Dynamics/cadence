@@ -82,6 +82,14 @@ Nominal standing pelvis site height is 0.857 m; the acceptance band is
 0.60–1.00 m with RMSE < 0.15 rad and no safety halt. The full 33 s walk clip
 also completes: DONE hold at z=0.859 m, RMSE 0.064 rad over the clip.
 
+Tiers: stage 1 is a process-level check over the operator UDP protocol (the
+CLI operator is the producer). Stage 2 and `render_sonic_sim.py` are in-process
+drivers that construct runtime input directly — fast, deterministic
+smoke/metrics that bypass the PLNJ ingress. The joystick-chain gold standard
+(virtual FIFO → real planetj → PLNJ → runtime) lives in the task repository,
+e.g. cadence-basketball `scripts/verify_sonic_fullchain.sh`; see
+[process topology](architecture.md#process-topology-and-the-sim2sim-chain).
+
 Known limitations: the serial-ankle approximation makes the sim softer than
 hardware (closed-chain stiffness is not modeled); the walk clip's root
 translation is tracked only implicitly through the policy (no world-frame

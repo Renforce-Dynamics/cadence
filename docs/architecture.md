@@ -54,6 +54,48 @@ rally package. Other input producers can implement the same public protocol.
 Relay and recording are optional process services, not steps required to execute
 an operator request.
 
+## Process topology and the sim2sim chain
+
+The runtime process never opens a joystick device. A separate producer process
+owns the physical (or virtual) device, parses chords and publishes PLNJ v3
+datagrams; the runtime only binds a UDP socket. The processes are launched
+independently and fail independently:
+
+```text
+Xbox /dev/input/js0 (real) or virtual FIFO (sim)
+  └─ planetj process ── PLNJ v3 UDP :50560 ──► python -m cadence run --config <entry>
+upper sequence worker ── planet.joint-target.v1 UDP :15100 ──► streamed-upper states
+motion-ref producer ── cadence.motion-ref.v1 UDP :15120 ──► sonic stream state
+localization producer ── planet.localization.v1 UDP :15110 ──► localization adapter
+```
+
+`python -m cadence run` is the single runtime entry for every backend: the
+entry configuration selects mock, MuJoCo or A3 SDK I/O. Task repositories do
+not ship their own runner; they supply entry, registry, state and joystick
+configuration only.
+
+Sim and real deployments share the same operator chain end to end: the same
+chord configuration, the same PLNJ wire format and the same receiver. Only
+three things differ — the backend selected by the entry, the joystick `device`
+(`/dev/input/js0` vs a FIFO) and the bind/target hosts (loopback vs site
+addresses).
+
+Verification is tiered; keep the tiers distinct when adding checks:
+
+1. Unit: chord parsing and packet codecs as pure functions (no device, no
+   sockets), in PlanetJoystick and Cadence tests.
+2. Process: a real runtime process driven over the operator UDP protocol by a
+   CLI producer, e.g. `scripts/verify_sonic_sim.sh` stage 1.
+3. Full chain: a real producer process (planetj) reading a virtual FIFO device
+   against a real runtime process — the gold standard for joystick-chain
+   changes, provided by task repositories (e.g. cadence-basketball
+   `scripts/verify_sonic_fullchain.sh`).
+
+In-process drivers that construct runtime input directly
+(`scripts/verify_sonic_sim.py`, `scripts/render_sonic_sim.py`) are fast,
+deterministic metrics/render smoke tests. They bypass the PLNJ ingress and are
+not a substitute for tier 2/3 chain validation.
+
 ## Source dependencies and Python installation
 
 ```mermaid
