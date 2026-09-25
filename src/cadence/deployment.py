@@ -265,6 +265,7 @@ def _publish_status(receiver, output, *, shadow, entry_gate_ready=None):
         "events": output.events, "execution": "shadow" if shadow else "backend",
         "substate": getattr(output, "skill_state", None),
         "entry_gate_ready": entry_gate_ready,
+        "safety_reason": getattr(output, "safety_reason", None),
     })
 
 
