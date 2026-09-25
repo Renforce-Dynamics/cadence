@@ -92,8 +92,13 @@ class JoystickCommandReceiver:
         entry_gate_ready = field("entry_gate_ready")
         if entry_gate_ready is not None and type(entry_gate_ready) is not bool:
             raise ValueError("operator entry_gate_ready must be a boolean")
+        safety_reason = field("safety_reason")
+        if safety_reason is not None and not isinstance(safety_reason, str):
+            raise ValueError("operator safety_reason must be a string or None")
         self._status = {"schema": OPERATOR_SCHEMA, "type": "status", "mode": mode,
                         "safety_halted": halted, "events": list(events)}
+        if safety_reason:
+            self._status["safety_reason"] = safety_reason
         if execution is not None:
             self._status["execution"] = execution
         if substate is not None:

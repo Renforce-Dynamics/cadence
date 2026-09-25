@@ -162,7 +162,8 @@ adds no PlanetJoystick package dependency or source submodule.
 
 The operator UDP port also answers `planet.operator.v1` JSON `describe` and
 `status` queries. `describe` reports registered states and safety destinations.
-`status` reports the latest published runtime mode, safety latch and cycle events.
+`status` reports the latest published runtime mode, safety latch and cycle events,
+plus the halt reason as `safety_reason` when the safety supervisor has latched.
 Queries only read snapshots. Sending a request does not guarantee a transition;
 state gates and safety still apply. Status is a snapshot, not a durable event log
 or a per-request execution receipt.

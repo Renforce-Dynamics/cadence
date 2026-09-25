@@ -130,6 +130,29 @@ def test_unknown_entry_gate_is_omitted(receiver):
     assert "entry_gate_ready" not in query(receiver)
 
 
+def test_safety_reason_is_published_when_present(receiver):
+    receiver.update_status({"mode": "FIXEDPOS", "safety_halted": True, "events": (),
+                            "safety_reason": "control deadline missed 5 times"})
+    assert query(receiver)["safety_reason"] == "control deadline missed 5 times"
+
+
+@pytest.mark.parametrize("reason", [None, ""])
+def test_absent_or_empty_safety_reason_restores_the_legacy_status_shape(receiver, reason):
+    receiver.update_status({"mode": "DAMPING", "safety_halted": False, "events": (),
+                            "safety_reason": reason})
+    assert "safety_reason" not in query(receiver)
+
+
+@pytest.mark.parametrize("invalid", [0, 1, [], {}, False])
+def test_invalid_safety_reason_does_not_replace_the_accepted_snapshot(receiver, invalid):
+    snapshot = {"mode": "CUSTOM", "safety_halted": False, "events": ()}
+    receiver.update_status(snapshot)
+    accepted = query(receiver)
+    with pytest.raises(ValueError, match="safety_reason must be a string"):
+        receiver.update_status({**snapshot, "safety_reason": invalid})
+    assert query(receiver) == accepted
+
+
 @pytest.mark.parametrize("client_type", [OperatorClient, LegacyOperatorClient])
 def test_existing_clients_accept_optional_substate_without_protocol_changes(receiver, client_type):
     stopped = threading.Event()
