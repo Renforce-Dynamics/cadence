@@ -71,6 +71,28 @@ def test_acceptance_gate_and_stale_acknowledgement():
     assert calls == ["rejected", "accepted"] and k.current_key == "damping"
 
 
+def test_handoff_requires_release_before_held_source_request_can_restart():
+    k, backend, state = kernel()
+    try:
+        source = k.current
+        command = source.step(ControlFrame(0, state)).command
+        source.step = lambda frame: ControlResult(command, next_state="damping")
+        assert k.tick(RuntimeInput(.02, state, None, requested_state="passive")).mode == "DAMPING"
+        source.step = lambda frame: ControlResult(command)
+        assert k.tick(RuntimeInput(.04, state, None, requested_state="passive")).mode == "DAMPING"
+        k.tick(RuntimeInput(.06, state, None, operator_link_usable=False))
+        assert k.tick(RuntimeInput(.08, state, None, requested_state="passive")).mode == "DAMPING"
+        # A real neutral input releases it; a subsequent request is a new play.
+        k.tick(RuntimeInput(.10, state, None))
+        assert k.tick(RuntimeInput(.12, state, None, requested_state="passive")).mode == "PASSIVE"
+        # The latch never prevents explicit manual fixedpos/damping takeover.
+        source.step = lambda frame: ControlResult(command, next_state="damping")
+        k.tick(RuntimeInput(.14, state, None))
+        assert k.tick(RuntimeInput(.16, state, None, requested_state="align")).mode == "ALIGN"
+    finally:
+        backend.close()
+
+
 def test_emergency_wins_over_reset_and_deadline_rejects_skill():
     k, b, s = kernel()
     result = k.tick(RuntimeInput(0.02, s, None, emergency_halt=True, reset_safety=True))

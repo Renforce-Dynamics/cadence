@@ -6,6 +6,11 @@ PlanetJoystick supplies operator input to compatible receivers without importing
 Cadence or the SDK. Task applications extend Cadence with states, transitions and
 deployment configuration; they reuse its receiver implementations.
 
+After an accepted command requests an automatic state handoff, holding the
+source state's operator selection cannot immediately re-enter it. A usable
+neutral input or another explicit state request releases that latch; disconnect
+alone does not. Manual damping/fixed-position takeover remains unconditional.
+
 ## Repository responsibilities
 
 | Repository | Owns | Reuses |

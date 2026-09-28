@@ -109,6 +109,7 @@ class RuntimeKernel:
             raise ValueError("invalid joint position bounds")
         self._pending = None
         self._ticket = 0
+        self._handoff_blocked_request = None
         services = config.services
         # Every enabled state and ONNX session is parsed, loaded and warmed by
         # construction before the frontend opens its command loop.
@@ -159,6 +160,7 @@ class RuntimeKernel:
         self._root_loss_steps = 0
         self._root_loss_blocked_mode = None
         self.current.on_enter(frame, [])
+        self._handoff_blocked_request = None
 
     def on_command_rejected(self):
         self.reject()
@@ -190,6 +192,15 @@ class RuntimeKernel:
                 )
             except ValueError:
                 events.append(f"rejected unknown state request {value.requested_state!r}")
+
+        # A held selection must not re-enter a one-shot skill immediately after
+        # its automatic handoff. A usable neutral packet (or another explicit
+        # request) releases this latch; a disconnected producer does not.
+        if self._handoff_blocked_request is not None:
+            if requested_key == self._handoff_blocked_request:
+                requested_key = None
+            elif requested_key is not None or value.operator_link_usable:
+                self._handoff_blocked_request = None
 
         # Manual damping/fixed-position takeover precedes source-state link,
         # localization and readiness handling. It also acknowledges an old
@@ -507,6 +518,8 @@ class RuntimeKernel:
             )
         events.append(f"STATE handoff {source.key.upper()} -> {target_key.upper()}")
         self._transition(target_key, frame, events)
+        if not source.operator_override:
+            self._handoff_blocked_request = source.key
 
     def _transition(
         self, target_key: str, frame: Any, events: list[str], *, reenter=False,
