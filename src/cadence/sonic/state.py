@@ -411,7 +411,8 @@ class SonicTrackState(ControlState):
                                events=("sonic_clip_ready",))
         if self.phase == "READY":
             if edge_y:
-                selection = (self._selection + edge_y) % len(self._clips)
+                # Menu convention: down advances to the next clip, up goes back.
+                selection = (self._selection - edge_y) % len(self._clips)
                 # The standby pose does not depend on the clip; selection is a
                 # pure bookkeeping commit, no re-blend.
                 return self._pd(self.default_cadence, "READY", delta_s, elapsed_s=0.0,
