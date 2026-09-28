@@ -138,6 +138,28 @@ class RuntimeKernel:
     def observe_control_duration(self, duration_s: float) -> None:
         self.safety.observe_control_duration(duration_s)
 
+    def reset_from_feedback(self, robot_state, now_s, *, localization=None):
+        """Reinitialize after an explicit simulation reset; keep the selected mode.
+
+        Discard pending work and pre-reset histories/targets. Physical reset
+        belongs to the backend; this method never selects a new skill.
+        """
+        self.reject()
+        frame = self.config.frame_factory(
+            float(now_s), robot_state, localization, None, (0.0, 0.0, 0.0), None,
+        )
+        self.current.on_exit(frame, [])
+        self.safety.reset()
+        self._entry_gate_ready = False
+        self._last_command_q_des = np.asarray(robot_state.joint_pos).copy()
+        self._transition_started_s = None
+        self._transition_duration_s = 0.0
+        self._transition_from_q_des = self._last_command_q_des.copy()
+        self._last_valid_root = localization
+        self._root_loss_steps = 0
+        self._root_loss_blocked_mode = None
+        self.current.on_enter(frame, [])
+
     def on_command_rejected(self):
         self.reject()
 
@@ -160,6 +182,33 @@ class RuntimeKernel:
         robot = value.robot_state
         live_root = value.localization
 
+        requested_key = None
+        if value.requested_state is not None:
+            try:
+                requested_key = self.config.state_catalog.canonical_key(
+                    value.requested_state
+                )
+            except ValueError:
+                events.append(f"rejected unknown state request {value.requested_state!r}")
+
+        # Manual damping/fixed-position takeover precedes source-state link,
+        # localization and readiness handling. It also acknowledges an old
+        # software halt; the operator need not issue a separate reset first.
+        # A simultaneous emergency signal still produces damping below.
+        override = requested_key is not None and self.plugins[requested_key].operator_override
+        if override:
+            was_halted = self.safety.halted
+            if not value.emergency_halt:
+                self.safety.reset()
+            self._root_loss_steps = 0
+            self._root_loss_blocked_mode = None
+            self._transition(
+                requested_key, self._frame(value, live_root), events,
+                reenter=was_halted and requested_key == self.current_key,
+            )
+            if was_halted and not value.emergency_halt:
+                events.append(f"operator override cleared safety -> {requested_key.upper()}")
+
         if self.current.requires_operator_link and not value.operator_link_usable:
             newly_halted = not self.safety.halted
             self.safety.halt("operator link disconnected or stale")
@@ -170,6 +219,7 @@ class RuntimeKernel:
             events.append("operator emergency halt")
         if (
             value.reset_safety
+            and not override
             and not value.emergency_halt
             and (not self.current.requires_operator_link or value.operator_link_usable)
         ):
@@ -203,14 +253,6 @@ class RuntimeKernel:
                         message += f" for {self.current.root_loss_exit_steps} steps"
                     events.append(message)
 
-        requested_key = None
-        if value.requested_state is not None:
-            try:
-                requested_key = self.config.state_catalog.canonical_key(
-                    value.requested_state
-                )
-            except ValueError:
-                events.append(f"rejected unknown state request {value.requested_state!r}")
         if self._root_loss_blocked_mode is not None:
             if requested_key == self._root_loss_blocked_mode:
                 requested_key = None
@@ -274,6 +316,19 @@ class RuntimeKernel:
                 result = self.current.step(self._frame(value, root))
                 events.extend(result.events)
                 command = self._smooth_transition(result.command, now)
+                if self.current.operator_override:
+                    # Damping can leave measured joints outside the configured
+                    # range. Bound the fixed-position ramp instead of latching
+                    # straight back into damping during manual takeover.
+                    controlled = command.kp > 0
+                    bounded = np.where(
+                        controlled,
+                        np.clip(command.q_des, self.position_min, self.position_max),
+                        command.q_des,
+                    )
+                    command = JointCommand(
+                        bounded, command.dq_des, command.kp, command.kd, command.tau_ff
+                    )
             if not self.safety.validate_command(command):
                 raise ValueError("invalid command")
             arrays = (
@@ -453,8 +508,10 @@ class RuntimeKernel:
         events.append(f"STATE handoff {source.key.upper()} -> {target_key.upper()}")
         self._transition(target_key, frame, events)
 
-    def _transition(self, target_key: str, frame: Any, events: list[str]) -> None:
-        if target_key == self.current_key:
+    def _transition(
+        self, target_key: str, frame: Any, events: list[str], *, reenter=False,
+    ) -> None:
+        if target_key == self.current_key and not reenter:
             return
         previous = self.current.key.upper()
         self.current.on_exit(frame, events)

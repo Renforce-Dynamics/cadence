@@ -56,7 +56,19 @@ class MujocoBackend:
             if q.shape != (len(joint_names),) or not np.all(np.isfinite(q)):
                 raise ValueError("invalid initial joints")
             self.data.qpos[self.qpos] = q
+        self._initial_qpos = self.data.qpos.copy()
         self.mujoco.mj_forward(self.model, self.data)
+
+    def reset(self):
+        """Restore the configured initial pose and clear all simulation motion.
+
+        This is a physical simulation reset, independent of safety signals or
+        control mode. Sequence numbers stay monotonic to reject pre-reset writes.
+        """
+        self.mujoco.mj_resetData(self.model, self.data)
+        self.data.qpos[:] = self._initial_qpos
+        self.mujoco.mj_forward(self.model, self.data)
+        self._sequence += 1
 
     def before_substep(self):
         pass

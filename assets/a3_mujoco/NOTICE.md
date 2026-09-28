@@ -25,9 +25,11 @@ Adaptations in `a3.xml` relative to
   rendering at up to 1080p works (`scripts/render_sonic_sim.py`).
 - Passive compliant-foot joints are kept unactuated with their fitted
   springs; head joints remain locked as in the source model.
-- The vendor upper-body mesh frames (torso_Link, torso_shell_Link,
-  head_yaw_Link, head_pitch_Link) face -X while the legs/policy walk +X;
-  the official MJCF/URDF has the same quirk. The four visual geoms carry
-  `quat="0 0 0 1"` so the render faces the walking direction. The visual
-  class is non-colliding and zero-density, and inertials and collision
-  hulls are untouched, so physics is byte-identical to the source model.
+- Upper-body visuals (torso_Link, torso_shell_Link, head_yaw_Link,
+  head_pitch_Link) retain their source body frames, matching agi3dep and
+  the collision hulls. Their front faces +X. The previous extra 180-degree
+  visual rotation reversed the head and chest and has been removed. A
+  world +X arrow and front/side renders establish the orientation; camera
+  azimuth alone does not identify the robot's front. These visual geoms
+  have zero density and no collision, so this correction leaves dynamics
+  unchanged.

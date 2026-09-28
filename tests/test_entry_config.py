@@ -156,7 +156,7 @@ def test_visible_simulation_obeys_configured_wall_clock(tmp_path, monkeypatch):
         def sync(self):
             rendered.append(True)
 
-    monkeypatch.setattr(mujoco.viewer, 'launch_passive', lambda *args: Viewer())
+    monkeypatch.setattr(mujoco.viewer, 'launch_passive', lambda *args, **kwargs: Viewer())
     monkeypatch.setattr(deployment.time, 'sleep', lambda value: sleeps.append(value))
     entry = tmp_path / 'entry_visible.yaml'
     entry.write_text(yaml.safe_dump({'extends': str(ROOT / 'configs/entry/examples/entry_sim.yaml'),

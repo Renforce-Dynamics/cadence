@@ -51,6 +51,8 @@ class ControlResult:
 class ControlState:
     active_policy = False
     active_entry_gate = False
+    # Explicit operator takeover is a capability, not a fixed runtime state ID.
+    operator_override = False
     requires_world_root = False
     requires_operator_link = False
     uses_loco_velocity = False
@@ -105,6 +107,7 @@ class BasicState(ControlState):
         if self.kind not in {"passive", "damping", "fixed_position"}:
             raise ValueError("unknown basic control kind")
         self.active_entry_gate = self.kind == "fixed_position"
+        self.operator_override = self.kind in {"damping", "fixed_position"}
         self.kp = np.broadcast_to(config.get("kp", 20.0), (self.n,)).copy()
         self.kd = np.broadcast_to(config.get("kd", 2.0), (self.n,)).copy()
         self.target = np.asarray(config.get("target", np.zeros(self.n)), dtype=float)

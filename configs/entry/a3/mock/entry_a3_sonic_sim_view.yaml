@@ -9,6 +9,6 @@ extends:
 - ../../../inputs/operator.yaml
 runtime:
   state_registry_config: ../../../state_registries/a3_operator_sonic_sim.yaml
-  start_state: fixedpos
+  start_state: damping
   duration_s: 0
   headless: false

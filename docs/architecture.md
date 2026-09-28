@@ -30,6 +30,22 @@ ball, racket or strike semantics and can be implemented by other executors.
 
 ## Runtime calls
 
+### Manual control takeover
+
+`BasicState` marks damping and fixed-position control with `operator_override`.
+Their explicit operator requests are processed before the departing state's
+link-loss handling, root fallback and active-policy entry gate. A request also
+acknowledges a prior software safety latch; no separate reset is needed. A
+held request does not restart the pose ramp. A same-state request after a halt
+restarts the ramp from measured joints. Convergence is only an entry condition
+for a subsequent active-policy request and never performs an automatic switch.
+
+This is a plugin capability: the kernel does not know task names or reserved
+numeric IDs. A concurrent emergency signal continues to command damping;
+non-finite data and backend write validity remain enforced. Fixed-position
+ramps are bounded by the configured position limits so a measured joint just
+outside the range does not latch back into damping during takeover.
+
 ```mermaid
 flowchart LR
     Device[Physical joystick] --> J[planetJoystick]

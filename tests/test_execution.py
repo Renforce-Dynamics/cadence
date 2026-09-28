@@ -1,7 +1,9 @@
 from types import SimpleNamespace
+from dataclasses import replace
 import numpy as np
 import pytest
 from cadence_api import JointCommand
+from cadence_api.plugins import RootLossMode
 from cadence.plugins import PluginCatalog, ControlFrame, ControlResult
 from cadence.runtime import RuntimeKernel, RuntimeConfig, RuntimeInput
 from cadence.backends.mock import MockBackend
@@ -83,6 +85,98 @@ def test_emergency_wins_over_reset_and_deadline_rejects_skill():
     result = k.guard_pending()
     k.commit()
     assert calls == ["rollback"] and result.safety_halted
+
+
+@pytest.mark.parametrize("requested", [1, 2, "damping", "align"])
+@pytest.mark.parametrize("halted", [False, True])
+def test_manual_override_preempts_source_link_root_loss_and_safety_latch(requested, halted):
+    k, backend, state = kernel()
+    try:
+        # The source would latch on link loss AND request a localization
+        # fallback on this tick. Neither may consume the manual takeover.
+        source = k.current
+        source.requires_operator_link = True
+        source.root_loss_mode = RootLossMode.FALLBACK
+        source.root_loss_exit_steps = 1
+        source.root_loss_fallback_state = "passive"
+        if halted:
+            k.safety.halt("previous policy failure")
+        result = k.tick(RuntimeInput(.02, state, None, requested_state=requested,
+                                     operator_link_usable=False))
+        target = "DAMPING" if requested in (1, "damping") else "ALIGN"
+        assert result.mode == target
+        assert not result.safety_halted
+        assert np.all(result.command.kp == (0 if target == "DAMPING" else 20))
+        assert np.all(result.command.kd > 0)
+        assert not k.entry_gate_ready
+        assert k._root_loss_blocked_mode is None
+    finally:
+        backend.close()
+
+
+def test_fixedpos_takeover_bounds_the_ramp_and_does_not_restart_on_held_request():
+    k, backend, state = kernel()
+    try:
+        state = replace(state, joint_pos=np.array([1.1, -1.1]))
+        entered = k.tick(RuntimeInput(.02, state, None, requested_state="align"))
+        assert not entered.safety_halted
+        np.testing.assert_allclose(entered.command.q_des, [1, -1])
+        middle = k.tick(RuntimeInput(.52, state, None, requested_state="align"))
+        np.testing.assert_allclose(middle.command.q_des, [.55, -.55])
+        finished = k.tick(RuntimeInput(1.02, state, None, requested_state="align"))
+        np.testing.assert_allclose(finished.command.q_des, [0, 0])
+        assert not finished.safety_halted
+        # The measured pose is deliberately not converged. Damping still wins.
+        assert not k.entry_gate_ready
+        damping = k.tick(RuntimeInput(1.04, state, None, requested_state="damping"))
+        assert damping.mode == "DAMPING" and not damping.safety_halted
+        assert np.all(damping.command.kp == 0)
+    finally:
+        backend.close()
+
+
+def test_fixedpos_can_reenter_after_a_halt_from_the_current_measured_pose():
+    k, backend, state = kernel()
+    try:
+        k.tick(RuntimeInput(.02, state, None, requested_state="align"))
+        k.safety.halt("previous control deadline")
+        state = replace(state, joint_pos=np.array([.4, -.4]))
+        recovered = k.tick(RuntimeInput(2., state, None, requested_state="align"))
+        assert not recovered.safety_halted
+        np.testing.assert_allclose(recovered.command.q_des, state.joint_pos)
+        assert k.current.start == 2.
+        # A concurrent emergency signal still commands zero stiffness.
+        emergency = k.tick(RuntimeInput(2.02, state, None, requested_state="align",
+                                        emergency_halt=True))
+        assert emergency.safety_halted
+        assert np.all(emergency.command.kp == 0)
+    finally:
+        backend.close()
+
+
+def test_physical_reset_discards_pending_work_and_restarts_the_same_mode():
+    k, backend, state = kernel()
+    try:
+        k.tick(RuntimeInput(.02, state, None, requested_state="align"))
+        calls = []
+        k.current.on_command_rejected = lambda: calls.append("rejected")
+        k.prepare(RuntimeInput(.5, state, None))
+        ticket = k.pending_ticket
+        k.safety.halt("old policy failure")
+        k._root_loss_blocked_mode = "align"
+        fresh = replace(state, joint_pos=np.array([.2, -.2]))
+        k.reset_from_feedback(fresh, 1.)
+        assert calls == ["rejected"]
+        assert k.current_key == "align"
+        assert k.pending_ticket is None and not k.safety.halted
+        assert not k.entry_gate_ready and k._root_loss_blocked_mode is None
+        prepared = k.prepare(RuntimeInput(1., fresh, None))
+        np.testing.assert_allclose(prepared.command.q_des, fresh.joint_pos)
+        with pytest.raises(RuntimeError, match="stale"):
+            k.commit(ticket)
+        assert k.commit().mode == "ALIGN"
+    finally:
+        backend.close()
 
 
 def test_handoff_does_not_publish_source_substate_as_destination_readiness():

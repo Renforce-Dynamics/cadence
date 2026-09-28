@@ -2,7 +2,7 @@
 # End-to-end MuJoCo sim verification for the SONIC states.
 #
 # Stage 1 (process level): start the real runtime on the sim entry headless,
-# wait for the fixedpos entry gate, drive sonic_clip READY -> (D-pad pulse)
+# explicitly request fixedpos, wait for its gate, drive sonic_clip -> (D-pad pulse)
 # CUE -> PLAYING -> damping via the operator protocol, assert no safety halt.
 # Stage 2 (in-process driver): physics-quality metrics for the stand and walk
 # clips (pelvis z band, tracking RMSE, no halt).
@@ -76,16 +76,11 @@ fi
 "$PYTHON" -m cadence run --config "$ENTRY" --output "$RUN_DIR" \
     > "$RUN_DIR/stdout.log" 2>&1 &
 RUNTIME_PID=$!
-sleep 1
-if ! kill -0 "$RUNTIME_PID" 2>/dev/null; then
-    echo "runtime exited immediately:"; cat "$RUN_DIR/stdout.log"
-    stage_fail "sim startup"
-    echo "== summary: $PASSED passed, $FAILED failed:$FAILED_STAGES =="
-    exit 1
-fi
-# The sim entry starts in fixedpos (damping falls before requests arrive).
-if wait_status "s['mode'] == 'FIXEDPOS' and s.get('entry_gate_ready') is True" 90; then
-    stage_pass "sim startup + fixedpos entry gate"
+# Publish the explicit bring-up request while models load. The runtime starts
+# in damping and executes the operator request when its receiver is ready.
+if "$PYTHON" "$ROOT/scripts/request_state.py" 2 --expect-mode FIXEDPOS --timeout-s 90 \
+    && wait_status "s['mode'] == 'FIXEDPOS' and s.get('entry_gate_ready') is True" 30; then
+    stage_pass "damping startup -> explicit fixedpos -> entry gate"
 else
     stage_fail "sim startup + fixedpos entry gate"
     tail -20 "$RUN_DIR/stdout.log"

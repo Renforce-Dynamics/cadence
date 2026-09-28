@@ -127,25 +127,21 @@
           <joint name="waist_roll_joint" pos="0 0 0" axis="1 0 0" range="-0.349066 0.349066" actuatorfrcrange="-46 46" actuatorfrclimited="true" damping="0.5" frictionloss="0.69223" armature="0.014620876" />
           <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="waist_roll_Link" />
           <body name="torso_Link" pos="-0.02 0 0.005">
-            <!-- Vendor upper-body mesh frames face -X while the legs/policy
-                 walk +X (the official AgibotTech MJCF/URDF has the same quirk).
-                 The four visual geoms below are rotated 180 deg about Z so the
-                 render faces the walking direction. The visual class is
-                 contype=0/conaffinity=0/density=0, and inertials and collision
-                 hulls are untouched: physics is byte-identical. -->
+            <!-- Visual meshes use the same body frames as the collision
+                 hulls. Their front faces +X, matching the feet and policy. -->
             <inertial pos="0.0151185 -0.000383519 0.198025" quat="0.99961 0.000905559 -0.0219862 -0.0172134" mass="17.465" diaginertia="0.221461 0.180271 0.120801" />
             <joint name="waist_pitch_joint" pos="0 0 0" axis="0 1 0" range="-0.488692 0.418879" actuatorfrcrange="-118 118" actuatorfrclimited="true" damping="0.8" frictionloss="1.7" armature="0.088208592" />
-            <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="torso_Link" quat="0 0 0 1" />
-            <geom class="visual" type="mesh" rgba="1 1 1 1" mesh="torso_shell_Link" quat="0 0 0 1" />
+            <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="torso_Link" />
+            <geom class="visual" type="mesh" rgba="1 1 1 1" mesh="torso_shell_Link" />
             <site name="imu_in_torso" size="0.01" pos="0 0 0.11185" />
             <body name="head_yaw_Link" pos="0.0303 0 0.28896">
               <inertial pos="-0.00051068 -0.00466266 0.173807" quat="0.99646 0.0526635 -0.0362023 0.0546288" mass="0.56546" diaginertia="0.00219578 0.00211246 0.00108933" />
               <joint name="head_yaw_joint" pos="0 0 0" axis="0 0 1" range="0 0" damping="1.0" />
-              <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="head_yaw_Link" quat="0 0 0 1" />
+              <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="head_yaw_Link" />
               <body name="head_pitch_Link" pos="0 0 0.21904">
                 <inertial pos="0.0204937 0.00056856 0.047024" quat="0.973049 -0.0072176 -0.230468 0.00302893" mass="1.5348" diaginertia="0.011829 0.0105356 0.00889493" />
                 <joint name="head_pitch_joint" pos="0 0 0" axis="0 1 0" range="0 0" damping="1.0" />
-                <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="head_pitch_Link" quat="0 0 0 1" />
+                <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="head_pitch_Link" />
                 <geom class="collision" type="mesh" mesh="head_pitch_Link_convex_00" />
               </body>
               <geom class="collision" type="mesh" mesh="head_yaw_Link_convex_00" />

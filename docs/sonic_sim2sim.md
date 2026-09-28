@@ -47,10 +47,13 @@ uv pip install --python .venv/bin/python "mujoco>=3,<4"
     WAITING/LOST) run PD_STAND gains, matching SONIC production bring-up.
     Policy phases always use the 024 gains from `control.kp/kd`.
 - `configs/entry/a3/mock/entry_a3_sonic_sim.yaml` — the sim entry.
-  `start_state: fixedpos`: in damping the simulated robot falls before the
-  first request arrives, and ramping from the fallen pose passes through
-  out-of-limit commands (kernel safety halt). Starting in the entry posture
-  avoids this.
+  `start_state: damping`, matching operator-driven bring-up on hardware.
+  An explicit fixedpos request starts the joint ramp immediately; convergence
+  is only checked before a later active-policy request. Damping and fixedpos
+  can interrupt every task phase and acknowledge an existing software halt.
+  Free-base damping provides no posture stiffness, so delayed bring-up can
+  let the robot fall. Fixedpos is joint alignment, not a get-up skill; reaching
+  its joint tolerance does not establish base stability.
 
 ## Run
 
@@ -67,11 +70,12 @@ configs/entry/operator/entry_sonic_clip.yaml` etc. as usual.
 ./scripts/verify_sonic_sim.sh
 ```
 
-Stage 1 starts the real runtime process on the sim entry and drives
-fixedpos → sonic_clip READY → (D-pad pulse) CUE → PLAYING (walk) → damping
+Stage 1 starts the real runtime process in damping, explicitly requests
+fixedpos, then drives sonic_clip READY → (D-pad pulse) CUE → PLAYING (walk) → damping
 over the operator protocol, asserting no safety halt. Stage 2
 (`scripts/verify_sonic_sim.py`) runs the same chain in-process on sim time and
-reports physics metrics; current numbers:
+reports physics metrics. The following are earlier stand/walk baseline results,
+not proof that delayed damping bring-up or the basketball clips are stable:
 
 | Stage | Pelvis z min–max | Joint tracking RMSE |
 | --- | --- | --- |
@@ -107,6 +111,15 @@ sim entry with `runtime.headless: false`; the runtime launches
 ```bash
 ./scripts/run.sh --config configs/entry/a3/mock/entry_a3_sonic_sim_view.yaml
 ```
+
+The viewer's **Reset** button, **Backspace**, or **R** restores the configured
+initial base/joint pose and clears velocities, controls and applied forces.
+The runtime reinitializes the currently selected state's history from that
+feedback; it keeps the state selected and does not automatically choose loco.
+After a fall, explicitly select fixedpos, reset in the viewer, wait for joint
+alignment, then manually select loco. Fixedpos itself is not a get-up skill.
+The operator's safety-reset signal remains independent: it clears software
+safety state without moving the simulated robot.
 
 Constraints: on **macOS the interactive viewer requires `mjpython`** (the
 mujoco package's main-thread launcher) — run `.venv/bin/mjpython -m cadence

@@ -302,6 +302,14 @@ def run_config(path, *, output=None, check=False):
     state = None
     state_now = 0.0
     stop = threading.Event()
+    sim_reset = threading.Event()
+
+    def on_sim_key(key):
+        # GLFW Backspace=259; R is an explicit alternative to the viewer's
+        # built-in reset key. Apply resets on the control thread, never here.
+        if key in (259, ord("R"), ord("r")):
+            sim_reset.set()
+
     started = time.monotonic()
     with ExitStack() as cleanup:
         cleanup.callback(backend.close)
@@ -318,7 +326,9 @@ def run_config(path, *, output=None, check=False):
             backend.start()
             if cfg["backend"]["kind"] == "mujoco" and not cfg["runtime"].get("headless", True):
                 import mujoco.viewer
-                viewer = cleanup.enter_context(mujoco.viewer.launch_passive(backend.model, backend.data))
+                viewer = cleanup.enter_context(mujoco.viewer.launch_passive(
+                    backend.model, backend.data, key_callback=on_sim_key,
+                ))
             state = backend.read_state(timeout_s=getattr(backend, "startup_timeout_s", None))
             initial_sample = localization.poll() if localization is not None else None
             initial_root = (None if initial_sample is None else initial_sample.localization) if localization is not None else _backend_localization(backend, state)
@@ -358,6 +368,15 @@ def run_config(path, *, output=None, check=False):
                     break
                 if plan.duration_s and (time.monotonic() - started if hardware else ticks * dt) >= plan.duration_s - 1e-9:
                     break
+                if sim_reset.is_set():
+                    sim_reset.clear()
+                    backend.reset()
+                    state = backend.read_state()
+                    reset_root = None if localization is not None else _backend_localization(backend, state)
+                    kernel.reset_from_feedback(state, ticks * dt, localization=reset_root)
+                    if operator is not None:
+                        velocity_limiter.reset(time.monotonic())
+                    print(f"simulation reset: initial pose restored; mode={kernel.current_key}", flush=True)
                 try:
                     if hardware:
                         state = read_control_state(backend, next_tick, backend.state_timeout_s)
@@ -408,7 +427,13 @@ def run_config(path, *, output=None, check=False):
                 shadow_steps += cycle.shadow
                 ticks += 1
                 if viewer is not None:
+                    sim_time_before_sync = float(backend.data.time)
                     viewer.sync()
+                    # The viewer's Reset button resets mjData during sync
+                    # without calling the key callback. Restore the configured
+                    # pose and restart control history on the next cycle too.
+                    if backend.data.time < sim_time_before_sync:
+                        sim_reset.set()
                 if operator is not None:
                     _publish_status(operator, cycle.output, shadow=shadow, entry_gate_ready=kernel.entry_gate_ready)
                 if realtime and not hardware:
