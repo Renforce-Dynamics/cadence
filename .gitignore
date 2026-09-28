@@ -7,5 +7,6 @@ build/
 dist/
 .cache/
 recordings/
+runs/
 *.so
 .ruff_cache/
