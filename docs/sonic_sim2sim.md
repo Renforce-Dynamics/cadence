@@ -68,19 +68,22 @@ configs/entry/operator/entry_sonic_clip.yaml` etc. as usual.
 ```
 
 Stage 1 starts the real runtime process on the sim entry and drives
-fixedpos → sonic_clip (walk) → damping over the operator protocol, asserting
-no safety halt. Stage 2 (`scripts/verify_sonic_sim.py`) runs the same chain
-in-process on sim time and reports physics metrics; current numbers:
+fixedpos → sonic_clip READY → (D-pad pulse) CUE → PLAYING (walk) → damping
+over the operator protocol, asserting no safety halt. Stage 2
+(`scripts/verify_sonic_sim.py`) runs the same chain in-process on sim time and
+reports physics metrics; current numbers:
 
 | Stage | Pelvis z min–max | Joint tracking RMSE |
 | --- | --- | --- |
 | fixedpos gate | 0.857 m (standing) | — |
-| sonic_clip stand clip, 12 s | 0.857–0.861 m | 0.033 rad |
-| sonic_clip walk clip, 15 s | 0.822–0.863 m | 0.065 rad |
+| sonic_clip stand clip, 12 s window | 0.859–0.861 m | 0.032 rad |
+| sonic_clip walk clip, 15 s window | 0.822–0.861 m | 0.065 rad |
 
 Nominal standing pelvis site height is 0.857 m; the acceptance band is
-0.60–1.00 m with RMSE < 0.15 rad and no safety halt. The full 33 s walk clip
-also completes: DONE hold at z=0.859 m, RMSE 0.064 rad over the clip.
+0.60–1.00 m with RMSE < 0.15 rad and no safety halt. Stage 2 also plays the
+stand clip to its natural end (RETURN → READY back at the stand pose) and
+verifies the D-pad-left loco handoff; the walk window exits mid-play via a
+fixedpos request.
 
 Tiers: stage 1 is a process-level check over the operator UDP protocol (the
 CLI operator is the producer). Stage 2 and `render_sonic_sim.py` are in-process

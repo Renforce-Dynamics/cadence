@@ -2,10 +2,10 @@
 # End-to-end MuJoCo sim verification for the SONIC states.
 #
 # Stage 1 (process level): start the real runtime on the sim entry headless,
-# wait for the fixedpos entry gate, drive sonic_clip -> PLAYING -> damping via
-# the operator protocol, assert no safety halt. Stage 2 (in-process driver):
-# physics-quality metrics for the stand and walk clips (pelvis z band,
-# tracking RMSE, no halt).
+# wait for the fixedpos entry gate, drive sonic_clip READY -> (D-pad pulse)
+# CUE -> PLAYING -> damping via the operator protocol, assert no safety halt.
+# Stage 2 (in-process driver): physics-quality metrics for the stand and walk
+# clips (pelvis z band, tracking RMSE, no halt).
 #
 # Requires the sim + inference extras:
 #   uv pip install --python .venv/bin/python "mujoco>=3,<4" "onnxruntime>=1.16,<1.24"
@@ -94,15 +94,17 @@ else
 fi
 
 if "$PYTHON" "$ROOT/scripts/request_state.py" 6 --expect-mode SONIC_CLIP \
-    && wait_status "s['mode'] == 'SONIC_CLIP' and s.get('substate') == 'PLAYING'" 20; then
+    --await-substate READY --pulse-dpad-y -1 \
+    && "$PYTHON" "$ROOT/scripts/request_state.py" 6 --expect-mode SONIC_CLIP \
+    --await-substate READY --pulse-dpad-x 1 --then-substate PLAYING --timeout-s 40; then
     sleep 10   # let it walk
     if wait_status "s['mode'] == 'SONIC_CLIP' and s.get('substate') == 'PLAYING'" 5; then
-        stage_pass "sim sonic_clip RAMP->PLAYING (walk, 10 s)"
+        stage_pass "sim sonic_clip READY->CUE->PLAYING (walk, 10 s)"
     else
-        stage_fail "sim sonic_clip RAMP->PLAYING (walk, 10 s)"
+        stage_fail "sim sonic_clip READY->CUE->PLAYING (walk, 10 s)"
     fi
 else
-    stage_fail "sim sonic_clip RAMP->PLAYING (walk, 10 s)"
+    stage_fail "sim sonic_clip READY->CUE->PLAYING (walk, 10 s)"
 fi
 
 if "$PYTHON" "$ROOT/scripts/request_state.py" 1 --expect-mode DAMPING \

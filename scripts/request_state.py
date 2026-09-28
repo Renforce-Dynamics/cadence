@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import secrets
 import socket
 import sys
 import time
@@ -49,6 +50,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # A fresh session per invocation: the receiver drops same-session packets
+    # whose sequence does not exceed the watermark of previous invocations.
+    session_id = secrets.randbits(32)
     sequence = 0
     deadline = time.monotonic() + args.timeout_s
 
@@ -58,7 +62,7 @@ def main(argv=None):
         if request is not None:
             flags |= JoystickFlags.REQUEST_VALID
         packet = JoystickCommandPacket(
-            session_id=42, packet_seq=sequence, source_age_us=0, ttl_ms=100,
+            session_id=session_id, packet_seq=sequence, source_age_us=0, ttl_ms=100,
             flags=flags, request_id=0 if request is None else request,
             dpad_x=dpad[0], dpad_y=dpad[1])
         sock.sendto(encode_joystick_command(packet), (args.host, args.port))
