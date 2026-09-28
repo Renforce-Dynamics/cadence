@@ -37,8 +37,10 @@ READY 永远停在**默认站姿**而不是剪辑第 0 帧：剪辑起点可能�
 - 流协议：`cadence.motion-ref.v1`（默认 `127.0.0.1:15120`），测试生产者：
   `scripts/send-motion-ref.py data/motions/BMD_0319_stand.npz --loop`。
 - 非策略相位（RAMP / READY / CUE / RETURN / WAITING / LOST）的增益由
-  `entry_gains` 选择：`policy`（默认，024 策略增益）或 `pd_stand`
-  （量产 PD_STAND 硬增益，sim 变体使用）。
+  `entry_gains` 选择。随仓发布的真机与 sim 配置统一显式使用 `pd_stand`
+  （量产 PD_STAND 站立增益）；PLAYING / 有效参考的 TRACKING 策略指令始终使用
+  `control.kp/kd` 的 024 增益。自定义配置省略此项时仍保留旧的 `policy` 默认，
+  因此自定义上机配置也应明确继承或设置 `entry_gains: pd_stand`。
 
 ## 跑法
 
@@ -68,6 +70,11 @@ safety halt。原理与近似（串联直驱踝/腰、PD_STAND 门控）见
 
 ## 排障
 
+- 从 loco 切入后尚未播放就软下来：检查最终 SONIC 配置是否有
+  `entry_gains: pd_stand`。RAMP/READY 是静态 PD 保持，loco 已经退出，SONIC
+  actor 尚未运行；不能拿较软的 024 策略增益代替站立增益。旧配置只在 sim
+  覆盖此项，导致仿真正常而真机配置缺失。若日志出现 HALT，还需按对应
+  `safety_reason` 检查，增益修复不等于排除了现场通信或超时问题。
 - 进不了 sonic 状态：先看 fixedpos 的 `entry_gate_ready`。
 - 卡在 READY：clip 模式在 READY 等十字键触发，不会自动播放（右=播放回
   loco，左=播放回 READY，上下选剪辑）。

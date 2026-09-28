@@ -21,9 +21,9 @@ uv pip install --python .venv/bin/python "mujoco>=3,<4"
 - One `<joint>_motor` actuator per cadence policy joint, `ctrlrange` set to the
   024 effort limits.
 - **The real robot's ankles and waist are closed-chain; this model drives the
-  serial joints directly.** The closed chain's effective stiffness is much
-  higher than the serial joint's, which is why the sim needs the PD_STAND
-  bring-up gains (below).
+  serial joints directly.** Simulated compliance does not establish hardware
+  behavior. Both deployments use the released PD_STAND gains for SONIC's
+  static holds and the 024 gains when the policy is producing commands.
 - Pelvis IMU site (`imu_in_pelvis`) feeds the `pelvis-orientation` framequat
   and `pelvis-angular-velocity` gyro sensors (noise removed); the site doubles
   as the root site. Passive compliant-foot joints keep their fitted springs;
@@ -51,10 +51,13 @@ uv pip install --python .venv/bin/python "mujoco>=3,<4"
     (ankle kp 500). Open-loop standing with the soft 024 policy gains
     (ankle kp 60) is statically unstable for the serial-ankle model; the same
     is true on the real robot, where manual bring-up uses PD_STAND.
-  - `configs/states/a3_sonic_clip_sim.yaml` / `a3_sonic_stream_sim.yaml` set
-    `entry_gains: pd_stand`: the non-policy PD phases (clip RAMP; stream
-    WAITING/LOST) run PD_STAND gains, matching SONIC production bring-up.
-    Policy phases always use the 024 gains from `control.kp/kd`.
+  - `configs/states/a3_sonic_clip_sim.yaml` / `a3_sonic_stream_sim.yaml` are
+    compatibility aliases of the hardware states. Their shared base configs
+    set `entry_gains: pd_stand`: non-policy PD commands (clip
+    RAMP/READY/CUE/RETURN; stream waiting/recovery) run PD_STAND gains,
+    matching SONIC production bring-up. Policy commands always use the 024
+    gains from `control.kp/kd`. Previously the override existed only in sim,
+    hiding a soft static-hold configuration on hardware.
 - `configs/entry/a3/mock/entry_a3_sonic_sim.yaml` — the sim entry.
   `start_state: damping`, matching operator-driven bring-up on hardware.
   An explicit fixedpos request starts the joint ramp immediately; convergence

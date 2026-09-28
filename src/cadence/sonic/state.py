@@ -268,7 +268,7 @@ class SonicTrackState(ControlState):
         self.policy_config = {"model": str(config.model)}
         self.kp = config.kp
         self.kd = config.kd
-        # Non-policy PD phases (clip RAMP/READY/RETURN; stream WAITING/LOST) can
+        # Non-policy PD phases (clip RAMP/READY/CUE/RETURN; stream WAITING/LOST) can
         # run the released PD_STAND bring-up gains instead of the soft 024
         # policy gains, matching SONIC production bring-up
         # (a3_policy_parameters.hpp). Policy phases always use control.kp/kd.

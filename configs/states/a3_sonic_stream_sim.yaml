@@ -1,3 +1,2 @@
-# Sim variant of a3_sonic_stream; see a3_sonic_clip_sim.yaml.
+# Compatibility alias; standing and policy gains match the hardware state.
 extends: a3_sonic_stream.yaml
-entry_gains: pd_stand

@@ -1,7 +1,5 @@
-# Sim variant: PD_STAND fixedpos + PD_STAND sonic entry gains for the
-# serial-ankle MJCF (see configs/states/a3_fixedpos_sim.yaml and
-# configs/states/a3_sonic_clip_sim.yaml); everything else matches
-# a3_operator_sonic.
+# Sim variant: PD_STAND fixedpos for the serial-ankle MJCF. The SONIC sim
+# state paths remain compatibility aliases of the shared hardware configs.
 extends: a3_operator_sonic.yaml
 states:
   2:

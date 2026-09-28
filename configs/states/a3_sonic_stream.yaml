@@ -4,6 +4,9 @@
 # before waiting again. The UDP receiver lifecycle belongs to this state.
 mode: stream
 entry_smoothing_s: 0.1
+# Waiting for a usable reference and recovering from stream loss are static
+# PD phases. Share production stand gains with clip mode on hardware and sim.
+entry_gains: pd_stand
 resources:
   model: ../../models/model_step_200000_a3_fast.onnx
 stream:

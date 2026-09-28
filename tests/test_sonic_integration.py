@@ -19,7 +19,10 @@ from cadence.plugins import ControlFrame
 from cadence.runtime import RuntimeConfig, RuntimeInput, RuntimeKernel
 from cadence_api import RobotState
 
-from cadence.sonic.contract import DEFAULT_ANGLES_CADENCE, ISAACLAB_JOINT_NAMES
+from cadence.sonic.contract import (
+    DEFAULT_ANGLES_CADENCE, ISAACLAB_JOINT_NAMES,
+    KD_024_CADENCE, KD_PD_STAND_CADENCE, KP_024_CADENCE, KP_PD_STAND_CADENCE,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRY = ROOT / "configs/entry/a3/mock/entry_a3_operator_sonic.yaml"
@@ -90,12 +93,18 @@ def _await_substate(rig, substate, max_ticks=200, dpad=(0, 0)):
     raise AssertionError(f"substate {substate} not reached; last {output.skill_state}")
 
 
+def _assert_gains(command, kp, kd):
+    np.testing.assert_array_equal(command.kp, kp)
+    np.testing.assert_array_equal(command.kd, kd)
+
+
 def test_sonic_clip_lifecycle(plan):
     rig = Rig.start(plan)
     events = []
     try:
         output = _enter_via_fixedpos(rig, 6)
         assert output.mode == "SONIC_CLIP" and output.skill_state == "RAMP"
+        _assert_gains(output.command, KP_PD_STAND_CADENCE, KD_PD_STAND_CADENCE)
         # Entry blends onto the stand pose and waits in READY.
         output, stage_events = _await_substate(rig, "READY")
         events.extend(stage_events)
@@ -105,17 +114,21 @@ def test_sonic_clip_lifecycle(plan):
         assert state.selected_motion == "stand"
         default = np.asarray(DEFAULT_ANGLES_CADENCE)
         np.testing.assert_allclose(output.command.q_des, default, atol=1e-9)
+        _assert_gains(output.command, KP_PD_STAND_CADENCE, KD_PD_STAND_CADENCE)
 
         # A held D-pad does not re-trigger; only a fresh edge selects/plays.
         output = rig.cycle(dpad=(-1, 0))  # left: return to READY after playback
         events.extend(output.events)
         assert output.skill_state == "CUE"
         assert "sonic_clip_cue:stand" in output.events
+        _assert_gains(output.command, KP_PD_STAND_CADENCE, KD_PD_STAND_CADENCE)
         # CUE blends onto the clip's first frame, then the policy takes over.
         output, stage_events = _await_substate(rig, "PLAYING")
         events.extend(stage_events)
         assert events.count("sonic_clip_started") == 1
         assert state.play_tick == 0
+        # The last CUE command reaches PLAYING but is still a PD command.
+        _assert_gains(output.command, KP_PD_STAND_CADENCE, KD_PD_STAND_CADENCE)
         for _ in range(3):
             output = rig.cycle(dpad=(-1, 0))  # still held: no re-trigger
         assert state.play_tick == 3
@@ -131,6 +144,7 @@ def test_sonic_clip_lifecycle(plan):
             assert np.all(output.command.q_des <= robot_cfg["position_max"])
             np.testing.assert_allclose(output.command.dq_des, 0.0)
             np.testing.assert_allclose(output.command.tau_ff, 0.0)
+            _assert_gains(output.command, KP_024_CADENCE, KD_024_CADENCE)
         # Jump near the clip end to reach RETURN without replaying 14.5 s.
         state.play_tick = state.clip.frames - 2
         output, stage_events = _await_substate(rig, "READY")
@@ -139,6 +153,7 @@ def test_sonic_clip_lifecycle(plan):
         assert events.count("sonic_clip_ready") == 2
         assert state.play_tick == 0
         np.testing.assert_allclose(output.command.q_des, default, atol=1e-9)
+        _assert_gains(output.command, KP_PD_STAND_CADENCE, KD_PD_STAND_CADENCE)
 
         # D-pad up/down cycles clips with wrap-around; selection is pure
         # bookkeeping (the standby pose is always the stand pose).
@@ -237,6 +252,7 @@ def test_sonic_stream_lifecycle(plan):
         assert output.mode == "SONIC_STREAM" and output.skill_state == "WAITING"
         default = np.asarray(DEFAULT_ANGLES_CADENCE)
         np.testing.assert_allclose(output.command.q_des, default)
+        _assert_gains(output.command, KP_PD_STAND_CADENCE, KD_PD_STAND_CADENCE)
         state = rig.kernel.plugin(7)
         mailbox = state.motion_ref
         assert state.receiver.address is not None
@@ -254,6 +270,7 @@ def test_sonic_stream_lifecycle(plan):
                 break
         assert output.skill_state == "TRACKING"
         assert events.count("sonic_stream_live") == 1
+        _assert_gains(output.command, KP_024_CADENCE, KD_024_CADENCE)
 
         # Stop the producer: beyond stale_ms the state blends back to stand.
         deadline = time.monotonic() + 2.0
@@ -265,12 +282,14 @@ def test_sonic_stream_lifecycle(plan):
             time.sleep(0.01)
         assert output.skill_state == "LOST"
         assert events.count("sonic_stream_lost") == 1
+        _assert_gains(output.command, KP_PD_STAND_CADENCE, KD_PD_STAND_CADENCE)
         for _ in range(40):
             output = rig.cycle()
             if output.skill_state == "WAITING":
                 break
         assert output.skill_state == "WAITING"
         np.testing.assert_allclose(output.command.q_des, default)
+        _assert_gains(output.command, KP_PD_STAND_CADENCE, KD_PD_STAND_CADENCE)
         # A re-fed stream re-locks yaw and resumes tracking in the same activation.
         _publish_stand_frames(mailbox, mailbox.activation, time.monotonic(),
                               sequence_start=100)

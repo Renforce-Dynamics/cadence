@@ -6,6 +6,10 @@
 # pose is always the default stand.
 mode: clip
 entry_smoothing_s: 0.1
+# RAMP/READY/CUE/RETURN hold joint targets without policy balance. Use the
+# released production stand gains on hardware and in sim; 024 policy gains
+# below apply only when the actor is producing commands.
+entry_gains: pd_stand
 resources:
   model: ../../models/model_step_200000_a3_fast.onnx
   clip_stand: ../../data/motions/BMD_0319_stand.npz
