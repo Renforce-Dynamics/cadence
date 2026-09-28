@@ -7,11 +7,10 @@ It constructs runtime input directly and bypasses the PLNJ operator ingress;
 joystick-chain validation is the task repository's full-chain harness (see
 docs/architecture.md, "Process topology and the sim2sim chain"). Stages:
 
-  fixedpos (PD_STAND entry gate)
-  -> sonic_clip RAMP -> READY (stand selected) -> D-pad right -> CUE -> PLAYING
-     stand to the natural end -> RETURN -> READY
+  damping -> fixedpos (PD_STAND entry gate) -> loco (5 s)
+  -> sonic_clip RAMP -> READY -> D-pad right -> stand to natural end -> loco (10 s)
+  -> re-enter -> D-pad left -> stand to natural end -> RETURN -> READY
   -> D-pad down selects walk -> CUE -> PLAYING walk 15 s -> mid-play exit
-  -> re-enter -> D-pad left -> stand to the natural end -> loco handoff
   -> fixedpos
 
 Metrics per play: pelvis site z min/max, joint tracking RMSE against the
@@ -47,29 +46,46 @@ Z_MIN, Z_MAX = 0.60, 1.00
 RMSE_MAX = 0.15  # rad
 
 
-def run_stage(kernel, backend, make_input, ticks, label):
+def run_stage(kernel, backend, make_input, ticks, label, expected_mode=None):
     """Drive the kernel for ``ticks`` control cycles, collecting metrics."""
     zmin, zmax = math.inf, -math.inf
     errors = []
     halted = None
     state = kernel.plugin(6)
+    head_joints = [backend.model.joint(f"head_{axis}_joint") for axis in ("yaw", "pitch")]
+    head_qpos = [int(j.qposadr[0]) for j in head_joints]
+    head_ranges = np.asarray([j.range for j in head_joints])
+    head_peak, tilt_peak = np.zeros(2), 0.0
+    # Joint stops are compliant; allow a small physical penetration at contact.
+    head_ok = all(bool(j.limited[0]) for j in head_joints)
     for _ in range(ticks):
         cycle = execute_cycle(kernel, backend, make_input())
         output = cycle.output
         if output.safety_halted:
             halted = output.safety_reason
             break
+        if expected_mode is not None and output.mode != expected_mode:
+            halted = f"expected {expected_mode}, got {output.mode}"
+            break
         robot = backend.read_state()
         z = float(robot.root_position_w[2])
         zmin, zmax = min(zmin, z), max(zmax, z)
+        head = backend.data.qpos[head_qpos]
+        head_peak = np.maximum(head_peak, np.abs(head))
+        head_ok &= bool(np.all(head >= head_ranges[:, 0] - .02)
+                        and np.all(head <= head_ranges[:, 1] + .02))
+        w, x, y, zq = robot.quaternion_wxyz
+        tilt_peak = max(tilt_peak, float(np.arccos(np.clip(1 - 2*(x*x+y*y), -1, 1))))
         if output.skill_state == "PLAYING":
             t = min(state.play_tick, state.clip.frames - 1)
             errors.append(robot.joint_pos - isaaclab_to_cadence(state.clip.q_ref[t]))
     rmse = float(np.sqrt(np.mean(np.square(errors)))) if errors else float("nan")
-    ok = (halted is None and zmin > Z_MIN and zmax < Z_MAX
+    ok = (halted is None and head_ok and tilt_peak < 1.0 and zmin > Z_MIN and zmax < Z_MAX
           and (not errors or rmse < RMSE_MAX))
     print(f"{label}: z=[{zmin:.3f},{zmax:.3f}] rmse={rmse:.4f} rad "
-          f"({len(errors)} PLAYING ticks) halted={halted} -> {'PASS' if ok else 'FAIL'}")
+          f"({len(errors)} PLAYING ticks) tilt_max={np.rad2deg(tilt_peak):.2f} deg "
+          f"head_peak_deg={np.rad2deg(head_peak).round(2).tolist()} "
+          f"head_limits_ok={head_ok} halted={halted} -> {'PASS' if ok else 'FAIL'}")
     return ok
 
 
@@ -122,10 +138,11 @@ def main(argv=None):
             return False
 
         def play():
-            """D-pad right trigger, CUE -> PLAYING."""
-            execute_cycle(kernel, backend, make_input(dpad=(1, 0)))
+            """D-pad left trigger, CUE -> PLAYING -> RETURN/READY."""
+            execute_cycle(kernel, backend, make_input(dpad=(-1, 0)))
             return wait_substate("PLAYING", 200)
 
+        assert execute_cycle(kernel, backend, make_input()).output.mode == "DAMPING"
         # fixedpos entry gate (PD_STAND in the sim registry).
         if not settle(2, 200, until_gate=True):
             print("fixedpos: entry gate never ready -> FAIL")
@@ -135,11 +152,34 @@ def main(argv=None):
         if not Z_MIN < z < Z_MAX:
             failures.append("fixedpos")
 
+        execute_cycle(kernel, backend, make_input(3))
+        if not run_stage(kernel, backend, make_input, round(5 * plan.control_hz),
+                         "loco before SONIC (5 s)", expected_mode="LOCO"):
+            failures.append("loco before SONIC")
+
         # Enter sonic_clip: RAMP onto the stand pose, then READY (stand).
         execute_cycle(kernel, backend, make_input(6))
         if not wait_substate("READY", 200):
             failures.append("sonic_clip entry READY")
-        else:
+        if not failures:
+            execute_cycle(kernel, backend, make_input(dpad=(1, 0)))
+            if not wait_substate("PLAYING", 200):
+                failures.append("sonic_clip right trigger")
+            elif not run_stage(kernel, backend, make_input, kernel.plugin(6).clip.frames,
+                               "sonic_clip right playback (complete stand)"):
+                failures.append("sonic_clip right playback")
+            if kernel.current_key != "loco":
+                failures.append("sonic_clip right playback did not hand off to loco")
+            elif not run_stage(kernel, backend, make_input, round(10 * plan.control_hz),
+                               "loco after right playback (10 s)", expected_mode="LOCO"):
+                failures.append("loco after right playback")
+        if not failures:
+            # Re-enter while standing in loco. A forced fixedpos takeover
+            # mid-walk is not a recovery skill or evidence of base balance.
+            execute_cycle(kernel, backend, make_input(6))
+            if not wait_substate("READY", 200):
+                failures.append("sonic_clip left-play entry READY")
+        if not failures:
             # Stand clip: play to the natural end (RETURN -> READY).
             if not play():
                 failures.append("sonic_clip(stand) trigger")
@@ -160,30 +200,6 @@ def main(argv=None):
                 if not settle(2, 200, until_gate=True):
                     print("fixedpos re-gate after walk failed -> FAIL")
                     failures.append("fixedpos re-gate")
-            if not failures:
-                # Re-enter and D-pad left: stand plays out, then loco handoff.
-                execute_cycle(kernel, backend, make_input(6))
-                if not wait_substate("READY", 200):
-                    failures.append("sonic_clip re-entry READY")
-                else:
-                    execute_cycle(kernel, backend, make_input(dpad=(-1, 0)))
-                    if not wait_substate("PLAYING", 200):
-                        failures.append("sonic_clip left trigger")
-                    else:
-                        handed_off = False
-                        for _ in range(1200):
-                            output = execute_cycle(kernel, backend, make_input()).output
-                            if output.safety_halted:
-                                raise RuntimeError(f"safety halt: {output.safety_reason}")
-                            if output.mode == "LOCO":
-                                handed_off = True
-                                break
-                        print(f"sonic_clip loco handoff: {'PASS' if handed_off else 'FAIL'}")
-                        if not handed_off:
-                            failures.append("sonic_clip loco handoff")
-                        if not settle(2, 200, until_gate=True):
-                            print("fixedpos re-gate after handoff failed -> FAIL")
-                            failures.append("fixedpos re-gate")
     finally:
         kernel.reject()
         kernel.current.on_exit(ControlFrame(tick / plan.control_hz, robot), [])

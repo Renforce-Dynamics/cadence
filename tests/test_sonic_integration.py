@@ -106,7 +106,7 @@ def test_sonic_clip_lifecycle(plan):
         np.testing.assert_allclose(output.command.q_des, default, atol=1e-9)
 
         # A held D-pad does not re-trigger; only a fresh edge selects/plays.
-        output = rig.cycle(dpad=(1, 0))
+        output = rig.cycle(dpad=(-1, 0))  # left: return to READY after playback
         events.extend(output.events)
         assert output.skill_state == "CUE"
         assert "sonic_clip_cue:stand" in output.events
@@ -116,7 +116,7 @@ def test_sonic_clip_lifecycle(plan):
         assert events.count("sonic_clip_started") == 1
         assert state.play_tick == 0
         for _ in range(3):
-            output = rig.cycle(dpad=(1, 0))  # still held: no re-trigger
+            output = rig.cycle(dpad=(-1, 0))  # still held: no re-trigger
         assert state.play_tick == 3
         # PLAYING advances exactly one reference tick per applied command.
         for expected in range(4, 8):
@@ -156,26 +156,37 @@ def test_sonic_clip_lifecycle(plan):
         rig.close()
 
 
-def test_sonic_clip_left_play_hands_off_to_loco(plan):
+def test_sonic_clip_right_play_hands_off_to_loco_only_after_accepted_finish(plan):
     rig = Rig.start(plan)
     try:
         _enter_via_fixedpos(rig, 6)
         _await_substate(rig, "READY")
         state = rig.kernel.plugin(6)
-        output = rig.cycle(dpad=(-1, 0))  # D-pad left: play, then loco
+        output = rig.cycle(dpad=(1, 0))  # D-pad right: play, then loco
         assert output.skill_state == "CUE"
         _await_substate(rig, "PLAYING")
-        state.play_tick = state.clip.frames - 2
-        # The finishing command carries the loco handoff; the kernel accepts
-        # (registry has loco) and reports ENTERING/LOCO instead of RETURN.
-        seen_finished = False
-        for _ in range(20):
-            output = rig.cycle()
-            seen_finished |= "sonic_clip_finished" in output.events
-            if output.mode == "LOCO":
-                break
-        assert seen_finished
+        state.play_tick = state.clip.frames - 1
+        # Rejecting the last command must not advance the phase or hand off.
+        now = (rig.tick + 1) / 50.0
+        candidate = rig.kernel.prepare(RuntimeInput(now, rig.robot, None, requested_state=6))
+        np.testing.assert_array_equal(candidate.command.kp, state.kp)
+        rig.kernel.reject()
+        assert rig.kernel.current_key == "sonic_clip"
+        assert state.phase == "PLAYING"
+        assert state.play_tick == state.clip.frames - 1
+
+        # The accepted finishing command is still a policy command. No PD
+        # RETURN/fixedpos command is inserted before locomotion takes over.
+        output = rig.cycle(6, dpad=(1, 0))
+        assert "sonic_clip_finished" in output.events
+        np.testing.assert_array_equal(output.command.kp, state.kp)
         assert output.mode == "LOCO"
+        for _ in range(25):
+            output = rig.cycle(6, dpad=(1, 0))  # held selection cannot restart
+            assert output.mode == "LOCO"
+            assert "sonic_clip_finished" not in output.events
+        rig.cycle()  # release the selection before a deliberate re-entry
+        assert rig.cycle(6).mode == "SONIC_CLIP"
     finally:
         rig.close()
 

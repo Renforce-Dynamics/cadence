@@ -6,7 +6,8 @@ clips through the released SONIC 035 a3_fast whole-body policy, and
 owns its receiver lifecycle; deployment.py is unchanged.
 
 Phases (``substate`` in status):
-  clip:   RAMP -> READY -> CUE -> PLAYING -> RETURN -> READY
+  clip:   RAMP -> READY -> CUE -> PLAYING -> loco (right)
+                                        -> RETURN -> READY (left)
 
   Entering blends onto the stand pose (RAMP) and waits in READY. READY reads
   the D-pad from the PLNJ operator packet (edges only, held keys do not
@@ -16,10 +17,10 @@ Phases (``substate`` in status):
   stand. A trigger enters CUE, which blends from stand onto the clip's first
   frame over ``clip.ramp_s`` and hands straight to the policy (PLAYING); the
   robot only passes through the clip start, never parks on it. At the final
-  frame, RETURN blends back to stand: a right-triggered play then waits in
-  READY for another clip, a left-triggered play also offers a loco handoff on
-  the finishing command (falling back to RETURN -> READY when the registry
-  has no loco). D-pad input is ignored outside READY.
+  frame, a right-triggered play offers a loco handoff on the accepted finishing
+  command (falling back to RETURN -> READY when the registry has no loco).
+  A left-triggered play blends back to stand in RETURN and waits in READY for
+  another clip. D-pad input is ignored outside READY.
 
   stream: WAITING -> TRACKING -> LOST (blend to stand) -> WAITING
 
@@ -423,12 +424,12 @@ class SonicTrackState(ControlState):
                 # D-pad right/left starts playback: CUE blends from stand onto
                 # the clip's first frame, then the policy takes over. The
                 # reference heading locks to the current pelvis yaw. Right
-                # returns to READY after the clip; left hands off to loco.
+                # hands off to loco; left returns to READY for repeated trials.
                 yaw = self.clip.lock_yaw(pelvis)
                 return self._pd(self.default_cadence, "CUE", delta_s, elapsed_s=0.0,
                                 play_tick=0, yaw_offset=yaw,
                                 blend_from=self._last_q_des.copy(),
-                                return_mode=("loco" if edge_x < 0 else "ready"),
+                                return_mode=("loco" if edge_x > 0 else "ready"),
                                 events=(f"sonic_clip_cue:{self.selection_name}",),
                                 dpad_seen=dpad)
             return self._pd(self.default_cadence, "READY", delta_s, elapsed_s=0.0,

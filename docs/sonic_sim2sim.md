@@ -27,7 +27,10 @@ uv pip install --python .venv/bin/python "mujoco>=3,<4"
 - Pelvis IMU site (`imu_in_pelvis`) feeds the `pelvis-orientation` framequat
   and `pelvis-angular-velocity` gyro sensors (noise removed); the site doubles
   as the root site. Passive compliant-foot joints keep their fitted springs;
-  head joints stay locked.
+  head yaw/pitch are passive and bounded by agi3dep's physical stops
+  (±60° yaw, −25°/+15° pitch), with the same damping, friction and armature.
+  They are outside the 29-joint policy contract. `range="0 0"` does not lock
+  a MuJoCo joint; the old asset incorrectly allowed the head to flip.
 - Joint armature values from `gear_sonic/.../a3.py` are applied to every
   policy joint; start height 1.069 m (sole contact at the default pose).
 
@@ -86,8 +89,10 @@ not proof that delayed damping bring-up or the basketball clips are stable:
 Nominal standing pelvis site height is 0.857 m; the acceptance band is
 0.60–1.00 m with RMSE < 0.15 rad and no safety halt. Stage 2 also plays the
 stand clip to its natural end (RETURN → READY back at the stand pose) and
-verifies the D-pad-left loco handoff; the walk window exits mid-play via a
-fixedpos request.
+verifies the D-pad-right loco handoff and 10 seconds of continued locomotion;
+the walk window exits mid-play via a fixedpos request. Head angles must remain
+within their physical stops (allowing small compliant contact penetration),
+and base tilt must remain below 1 rad throughout the measured windows.
 
 Tiers: stage 1 is a process-level check over the operator UDP protocol (the
 CLI operator is the producer). Stage 2 and `render_sonic_sim.py` are in-process

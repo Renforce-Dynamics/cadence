@@ -23,8 +23,15 @@ Adaptations in `a3.xml` relative to
   matches the source model's own stand keyframe).
 - `<visual><global>` gains `offwidth/offheight="1920x1080"` so offscreen
   rendering at up to 1080p works (`scripts/render_sonic_sim.py`).
-- Passive compliant-foot joints are kept unactuated with their fitted
-  springs; head joints remain locked as in the source model.
+- Passive compliant-foot joints are kept unactuated with their fitted springs.
+- Head yaw/pitch use agi3dep's physical stops (yaw ±60°, pitch −25°/+15°),
+  damping 1.0, friction loss 0.1, and armature 0.0008100893338. They remain
+  passive, outside the 29-joint policy contract, matching agi3dep's Python
+  sim2sim backend (its head motors receive no commands). The source's
+  `range="0 0"` disabled MuJoCo autolimits rather than locking the head;
+  under gravity the unbounded pitch joint could flip almost 180°. These
+  explicit nonzero limits fix that dynamics error; this is not a visual-only
+  change or an implementation of the hardware SDK's neck hold.
 - Upper-body visuals (torso_Link, torso_shell_Link, head_yaw_Link,
   head_pitch_Link) retain their source body frames, matching agi3dep and
   the collision hulls. Their front faces +X. The previous extra 180-degree

@@ -136,11 +136,13 @@
             <site name="imu_in_torso" size="0.01" pos="0 0 0.11185" />
             <body name="head_yaw_Link" pos="0.0303 0 0.28896">
               <inertial pos="-0.00051068 -0.00466266 0.173807" quat="0.99646 0.0526635 -0.0362023 0.0546288" mass="0.56546" diaginertia="0.00219578 0.00211246 0.00108933" />
-              <joint name="head_yaw_joint" pos="0 0 0" axis="0 0 1" range="0 0" damping="1.0" />
+              <!-- Passive head limits/dynamics match agi3dep. range="0 0"
+                   disables autolimits; it does not lock a MuJoCo joint. -->
+              <joint name="head_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.0472 1.0472" limited="true" damping="1.0" frictionloss="0.1" armature="0.0008100893338" />
               <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="head_yaw_Link" />
               <body name="head_pitch_Link" pos="0 0 0.21904">
                 <inertial pos="0.0204937 0.00056856 0.047024" quat="0.973049 -0.0072176 -0.230468 0.00302893" mass="1.5348" diaginertia="0.011829 0.0105356 0.00889493" />
-                <joint name="head_pitch_joint" pos="0 0 0" axis="0 1 0" range="0 0" damping="1.0" />
+                <joint name="head_pitch_joint" pos="0 0 0" axis="0 1 0" range="-0.436332 0.261799" limited="true" damping="1.0" frictionloss="0.1" armature="0.0008100893338" />
                 <geom class="visual" type="mesh" rgba="0.1 0.1 0.1 1" mesh="head_pitch_Link" />
                 <geom class="collision" type="mesh" mesh="head_pitch_Link_convex_00" />
               </body>
