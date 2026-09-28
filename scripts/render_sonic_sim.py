@@ -2,7 +2,8 @@
 """Offline mp4 render of the SONIC MuJoCo sim2sim (watch the sim).
 
 In-process driver: builds the deployment from the sim entry, steps the 50 Hz
-control loop manually (fixedpos entry gate -> sonic_clip), and renders frames
+control loop manually (fixedpos entry gate -> sonic_clip READY -> D-pad right
+-> PLAYING), and renders frames
 with mujoco.Renderer through a pelvis-tracking side camera. Like
 verify_sonic_sim.py it bypasses the PLNJ operator ingress; it is a
 visualization aid, not joystick-chain validation. Requires the
@@ -12,8 +13,8 @@ package dependency):
   uv pip install --python .venv/bin/python "mujoco>=3,<4" "onnxruntime>=1.16,<1.24" imageio-ffmpeg
 
 Usage:
-  scripts/render_sonic_sim.py --clip 001_walk_front_slow.npz --out /tmp/walk.mp4
-  scripts/render_sonic_sim.py --clip BMD_0319_stand.npz --seconds 12 --out /tmp/stand.mp4
+  scripts/render_sonic_sim.py --clip walk --out /tmp/walk.mp4
+  scripts/render_sonic_sim.py --clip stand --seconds 12 --out /tmp/stand.mp4
 """
 
 from __future__ import annotations
@@ -38,7 +39,6 @@ from cadence.runtime import RuntimeConfig, RuntimeInput, RuntimeKernel
 from cadence.runtime.loop import execute_cycle
 
 from cadence.sonic.contract import isaaclab_to_cadence
-from cadence.sonic.reference import SonicClip
 
 DEFAULT_ENTRY = ROOT / "configs/entry/a3/mock/entry_a3_sonic_sim.yaml"
 
@@ -99,8 +99,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=str(DEFAULT_ENTRY))
     parser.add_argument("--clip", default=None,
-                        help="NPZ name under data/motions/ or an explicit path "
-                             "(default: the clip configured in the sim entry)")
+                        help="NPZ name under data/motions/ or an explicit path; "
+                             "replaces the configured clip set (default: the "
+                             "entry's selected clip)")
     parser.add_argument("--seconds", type=float, default=None,
                         help="default: whole clip plus 2 s of the DONE hold")
     parser.add_argument("--out", required=True)
@@ -112,6 +113,26 @@ def main(argv=None):
         parser.error("--fps must be in [1, 50]")
 
     resolved = load_run_config(args.config)
+    if args.clip is not None:
+        clip_cfg = resolved.data["catalog"]["states"][6]["config"]
+        names = list(clip_cfg["clip"]["clips"])
+        if args.clip in names:
+            # Select one of the configured clips; the set is unchanged.
+            clip_cfg["clip"]["select"] = args.clip
+        else:
+            candidate = Path(args.clip)
+            if not candidate.is_file():
+                candidate = ROOT / "data/motions" / args.clip
+            if not candidate.is_file() and candidate.suffix != ".npz":
+                candidate = candidate.with_suffix(".npz")
+            if not candidate.is_file():
+                raise SystemExit(f"clip not found: {args.clip} (configured: {', '.join(names)}; "
+                                 "or pass an NPZ path)")
+            clip_cfg["resources"] = {"model": clip_cfg["resources"]["model"],
+                                     "clip_only": str(candidate.resolve())}
+            clip_cfg["clip"] = {k: v for k, v in clip_cfg.get("clip", {}).items()
+                                if k in {"ramp_s", "future_frame_skip"}}
+            clip_cfg["clip"].update({"clips": ["only"], "select": "only"})
     plan = prepare_deployment(resolved)
     cfg = plan.resolved.data
     backend = plan.backend
@@ -122,11 +143,6 @@ def main(argv=None):
                                joint_names=tuple(cfg["robot"]["joints"]))
     states = plan.catalog.instantiate(services)
     state = states["sonic_clip"]
-    if args.clip is not None:
-        candidate = Path(args.clip)
-        if not candidate.is_file():
-            candidate = ROOT / "data/motions" / args.clip
-        state.clip = SonicClip.load(candidate)
     clip = state.clip
     seconds = args.seconds if args.seconds is not None else clip.duration_s + 2.0
     ticks = round(seconds * plan.control_hz)
@@ -154,11 +170,13 @@ def main(argv=None):
         robot, 0.0, preloaded_plugins=states)
     try:
 
-        def make_input(request=None):
+        def make_input(request=None, dpad=(0, 0)):
             nonlocal tick, robot
             tick += 1
             robot = backend.read_state()
-            return RuntimeInput(tick / plan.control_hz, robot, None, requested_state=request)
+            operator = SimpleNamespace(dpad_x=dpad[0], dpad_y=dpad[1])
+            return RuntimeInput(tick / plan.control_hz, robot, None,
+                                requested_state=request, operator_input=operator)
 
         # fixedpos entry gate.
         for _ in range(round(5 * plan.control_hz)):
@@ -168,6 +186,15 @@ def main(argv=None):
         if not kernel.entry_gate_ready:
             raise SystemExit("fixedpos entry gate never became ready")
         execute_cycle(kernel, backend, make_input(6))
+        # RAMP onto the selected clip's first frame, then wait in READY.
+        for _ in range(round(3 * plan.control_hz)):
+            cycle = execute_cycle(kernel, backend, make_input())
+            if cycle.output.skill_state == "READY":
+                break
+        else:
+            raise SystemExit("sonic_clip never reached READY")
+        # D-pad right edge: play the selected clip.
+        execute_cycle(kernel, backend, make_input(dpad=(1, 0)))
 
         for _ in range(ticks):
             cycle = execute_cycle(kernel, backend, make_input())

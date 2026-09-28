@@ -2,9 +2,10 @@
 # End-to-end mock-backend verification of the SONIC states.
 #
 # Stages: runtime startup -> operator readiness -> fixedpos entry gate ->
-# sonic_clip RAMP/PLAYING/DONE -> sonic_stream WAITING/TRACKING/LOST/WAITING ->
-# damping. safety_halted must stay false throughout. Exits nonzero if any
-# stage fails. Compatible with macOS bash 3.2 and Linux.
+# sonic_clip RAMP/READY/PLAYING/RETURN/READY (D-pad pulse via request_state.py)
+# -> sonic_stream WAITING/TRACKING/LOST/WAITING -> damping. safety_halted must
+# stay false throughout. Exits nonzero if any stage fails. Compatible with
+# macOS bash 3.2 and Linux.
 #
 # Usage: ./scripts/verify_sonic_mock.sh
 set -u
@@ -99,16 +100,15 @@ else
     stage_fail "fixedpos entry gate"
 fi
 
-# --- Stage 3: sonic_clip RAMP -> PLAYING -> DONE ---------------------------
+# --- Stage 3: sonic_clip RAMP -> READY -> PLAYING -> RETURN -> READY --------
 CLIP_OK=1
-if ! "$PYTHON" "$ROOT/scripts/request_state.py" 6 --expect-mode SONIC_CLIP; then
+if ! "$PYTHON" "$ROOT/scripts/request_state.py" 6 --expect-mode SONIC_CLIP \
+      --await-substate READY --pulse-dpad-x 1 --then-substate PLAYING --timeout-s 40; then
     CLIP_OK=0
-elif ! wait_status "s['mode'] == 'SONIC_CLIP' and s.get('substate') == 'PLAYING'" 20; then
-    CLIP_OK=0
-elif ! wait_status "s['mode'] == 'SONIC_CLIP' and s.get('substate') == 'DONE'" 75; then
+elif ! wait_status "s['mode'] == 'SONIC_CLIP' and s.get('substate') == 'READY'" 75; then
     CLIP_OK=0
 fi
-if [ "$CLIP_OK" = 1 ]; then stage_pass "sonic_clip RAMP->PLAYING->DONE"; else stage_fail "sonic_clip RAMP->PLAYING->DONE"; fi
+if [ "$CLIP_OK" = 1 ]; then stage_pass "sonic_clip RAMP->READY->PLAYING->RETURN->READY"; else stage_fail "sonic_clip RAMP->READY->PLAYING->RETURN->READY"; fi
 
 # --- Stage 4: sonic_stream WAITING -> TRACKING -> LOST -> WAITING ----------
 STREAM_OK=1

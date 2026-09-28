@@ -6,7 +6,7 @@ a3_csv_motion_reference.cpp``): future frames are clamped to the final frame
 once the clip ends (``hold_last``), and the anchor is the yaw-locked reference
 root orientation relative to the current pelvis quaternion.
 
-The NPZ contract (produced by ``tools/convert_sonic_clip.py``):
+The NPZ contract (produced by ``scripts/convert_sonic_clip.py``):
   q_ref           [T,29] float64, absolute joint positions, IsaacLab order
   dq_ref          [T,29] float64, joint velocities, IsaacLab order
   root_quat_wxyz  [T,4]  float64, reference pelvis orientation

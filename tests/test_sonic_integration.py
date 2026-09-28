@@ -52,10 +52,12 @@ class Rig:
                           "damping", plan.deadline_s), robot, 0.0)
         return cls(kernel, robot)
 
-    def cycle(self, request=None):
+    def cycle(self, request=None, dpad=(0, 0)):
         self.tick += 1
         now = self.tick / 50.0
-        output = self.kernel.tick(RuntimeInput(now, self.robot, None, requested_state=request))
+        operator = SimpleNamespace(dpad_x=dpad[0], dpad_y=dpad[1])
+        output = self.kernel.tick(RuntimeInput(now, self.robot, None, requested_state=request,
+                                               operator_input=operator))
         assert not output.safety_halted, output.safety_reason
         self.robot = replace(self.robot, sequence=self.tick + 1,
                              timestamp_ns=round(now * 1e9),
@@ -78,23 +80,46 @@ def _enter_via_fixedpos(rig, request_id):
     return output
 
 
+def _await_substate(rig, substate, max_ticks=200, dpad=(0, 0)):
+    events = []
+    for _ in range(max_ticks):
+        output = rig.cycle(dpad=dpad)
+        events.extend(output.events)
+        if output.skill_state == substate:
+            return output, events
+    raise AssertionError(f"substate {substate} not reached; last {output.skill_state}")
+
+
 def test_sonic_clip_lifecycle(plan):
     rig = Rig.start(plan)
     events = []
     try:
         output = _enter_via_fixedpos(rig, 6)
         assert output.mode == "SONIC_CLIP" and output.skill_state == "RAMP"
-        for _ in range(60):
-            output = rig.cycle()
-            events.extend(output.events)
-            if output.skill_state == "PLAYING":
-                break
-        assert output.skill_state == "PLAYING"
-        assert events.count("sonic_clip_started") == 1
+        # Entry blends onto the stand pose and waits in READY.
+        output, stage_events = _await_substate(rig, "READY")
+        events.extend(stage_events)
+        assert events.count("sonic_clip_ready") == 1
         state = rig.kernel.plugin(6)
+        assert state.selection_name == "stand"
         default = np.asarray(DEFAULT_ANGLES_CADENCE)
+        np.testing.assert_allclose(output.command.q_des, default, atol=1e-9)
+
+        # A held D-pad does not re-trigger; only a fresh edge selects/plays.
+        output = rig.cycle(dpad=(1, 0))
+        events.extend(output.events)
+        assert output.skill_state == "CUE"
+        assert "sonic_clip_cue:stand" in output.events
+        # CUE blends onto the clip's first frame, then the policy takes over.
+        output, stage_events = _await_substate(rig, "PLAYING")
+        events.extend(stage_events)
+        assert events.count("sonic_clip_started") == 1
+        assert state.play_tick == 0
+        for _ in range(3):
+            output = rig.cycle(dpad=(1, 0))  # still held: no re-trigger
+        assert state.play_tick == 3
         # PLAYING advances exactly one reference tick per applied command.
-        for expected in range(1, 6):
+        for expected in range(4, 8):
             output = rig.cycle()
             assert state.play_tick == expected
             assert output.observation_kind == "sonic_whole_body_h10"
@@ -105,59 +130,81 @@ def test_sonic_clip_lifecycle(plan):
             assert np.all(output.command.q_des <= robot_cfg["position_max"])
             np.testing.assert_allclose(output.command.dq_des, 0.0)
             np.testing.assert_allclose(output.command.tau_ff, 0.0)
-        # Jump near the clip end to reach DONE without replaying 33 s.
+        # Jump near the clip end to reach RETURN without replaying 14.5 s.
         state.play_tick = state.clip.frames - 2
-        for _ in range(4):
-            output = rig.cycle()
-            events.extend(output.events)
-        assert output.skill_state == "DONE"
+        output, stage_events = _await_substate(rig, "READY")
+        events.extend(stage_events)
         assert events.count("sonic_clip_finished") == 1
-        # DONE keeps the policy alive on the clamped final reference frame.
-        for _ in range(3):
-            output = rig.cycle()
-        assert output.skill_state == "DONE"
-        assert state.play_tick == state.clip.frames - 1
+        assert events.count("sonic_clip_ready") == 2
+        assert state.play_tick == 0
+        np.testing.assert_allclose(output.command.q_des, default, atol=1e-9)
+
+        # D-pad up/down cycles clips with wrap-around; selection is pure
+        # bookkeeping (the standby pose is always the stand pose).
+        output = rig.cycle(dpad=(0, -1))  # stand -> walk
+        events.extend(output.events)
+        assert "sonic_clip_selected:walk" in output.events
+        assert output.skill_state == "READY"
+        assert state.selection_name == "walk"
+        output = rig.cycle(dpad=(0, -1))  # held: no edge, still walk
+        assert not output.events
+        output = rig.cycle()              # release
+        output = rig.cycle(dpad=(0, -1))  # walk -> stand (wrap)
+        assert "sonic_clip_selected:stand" in output.events
+        assert state.selection_name == "stand"
     finally:
         rig.close()
 
 
-def test_sonic_clip_on_finish_loco_handoff(plan):
-    cfg = plan.resolved.data
-    services = SimpleNamespace(dimension=plan.dimension,
-                               joint_names=tuple(cfg["robot"]["joints"]))
-    base = plan.catalog.definitions["sonic_clip"][1]["config"]
-    from dataclasses import replace as dc_replace
-    from cadence.sonic.state import SonicConfig, SonicTrackState
-    config = dc_replace(SonicConfig.from_mapping(base), on_finish="loco")
-    state = SonicTrackState(6, "sonic_clip", config, services)
-    zero = np.zeros(29)
-    robot = RobotState(1, 0, np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0]), zero, zero, zero)
-    robot = replace(robot, joint_pos=np.asarray(DEFAULT_ANGLES_CADENCE).copy())
-    tick = 0
-
-    def cycle():
-        nonlocal robot, tick
-        tick += 1
-        result = state.step(ControlFrame(tick / 50.0, robot))
-        state.on_command_applied(result.command)
-        robot = replace(robot, sequence=tick + 1, timestamp_ns=round(tick / 50.0 * 1e9),
-                        joint_pos=result.command.q_des.copy())
-        return result
-
+def test_sonic_clip_left_play_hands_off_to_loco(plan):
+    rig = Rig.start(plan)
     try:
-        state.on_enter(ControlFrame(0.0, robot), [])
-        for _ in range(60):
-            result = cycle()
-            if result.substate == "PLAYING":
-                break
-        assert result.substate == "PLAYING"
+        _enter_via_fixedpos(rig, 6)
+        _await_substate(rig, "READY")
+        state = rig.kernel.plugin(6)
+        output = rig.cycle(dpad=(-1, 0))  # D-pad left: play, then loco
+        assert output.skill_state == "CUE"
+        _await_substate(rig, "PLAYING")
         state.play_tick = state.clip.frames - 2
-        results = [cycle() for _ in range(3)]
-        assert results[1].substate == "DONE" and results[1].next_state == "loco"
-        assert "sonic_clip_finished" in results[1].events
-        assert results[2].next_state is None  # handoff offered exactly once
+        # The finishing command carries the loco handoff; the kernel accepts
+        # (registry has loco) and reports ENTERING/LOCO instead of RETURN.
+        seen_finished = False
+        for _ in range(20):
+            output = rig.cycle()
+            seen_finished |= "sonic_clip_finished" in output.events
+            if output.mode == "LOCO":
+                break
+        assert seen_finished
+        assert output.mode == "LOCO"
     finally:
-        state.on_exit(ControlFrame(tick / 50.0, robot), [])
+        rig.close()
+
+
+def test_sonic_clip_rejected_trigger_is_not_lost(plan):
+    rig = Rig.start(plan)
+    try:
+        _enter_via_fixedpos(rig, 6)
+        _await_substate(rig, "READY")
+        # A rejected trigger tick keeps the D-pad edge pending: the committed
+        # D-pad only advances on an applied command.
+        now = (rig.tick + 1) / 50.0
+        operator = SimpleNamespace(dpad_x=1, dpad_y=0)
+        rejected = rig.kernel.prepare(RuntimeInput(now, rig.robot, None,
+                                                   operator_input=operator))
+        assert rejected.skill_state == "CUE"
+        rig.kernel.reject()
+        state = rig.kernel.plugin(6)
+        assert state.phase == "READY"
+        retried = rig.kernel.tick(RuntimeInput(now, rig.robot, None, operator_input=operator))
+        rig.tick += 1
+        assert retried.skill_state == "CUE"
+        assert state.play_tick == 0
+        rig.robot = replace(rig.robot, sequence=rig.tick + 1,
+                            timestamp_ns=round(now * 1e9),
+                            joint_pos=retried.command.q_des.copy())
+        np.testing.assert_array_equal(retried.command.q_des, rejected.command.q_des)
+    finally:
+        rig.close()
 
 
 def _publish_stand_frames(mailbox, activation, now_s, count=16, dt=0.02, sequence_start=0):
@@ -244,11 +291,9 @@ def test_sonic_clip_reject_restores_history_and_replays(plan):
     rig = Rig.start(plan)
     try:
         _enter_via_fixedpos(rig, 6)
-        for _ in range(60):
-            output = rig.cycle()
-            if output.skill_state == "PLAYING":
-                break
-        assert output.skill_state == "PLAYING"
+        _await_substate(rig, "READY")
+        rig.cycle(dpad=(1, 0))  # D-pad right: CUE -> PLAYING
+        output, _ = _await_substate(rig, "PLAYING")
         state = rig.kernel.plugin(6)
         rig.cycle()
         rig.cycle()

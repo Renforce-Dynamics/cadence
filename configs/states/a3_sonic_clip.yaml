@@ -1,17 +1,23 @@
-# sonic_clip: play one converted motion clip through the SONIC 035 a3_fast
-# whole-body actor (state id 6). Ramps onto clip frame 0, plays at 50 Hz,
-# then holds the final frame (or hands off per clip.on_finish).
+# sonic_clip: play converted motion clips through the SONIC 035 a3_fast
+# whole-body actor (state id 6). Entering blends onto the stand pose and waits
+# in READY; D-pad up/down cycles clip.clips, D-pad right plays once and returns
+# to READY, D-pad left plays once and hands off to loco. READY never holds a
+# clip's first frame (an arbitrary clip start can be unbalanced); the standby
+# pose is always the default stand.
 mode: clip
 entry_smoothing_s: 0.1
 resources:
   model: ../../models/model_step_200000_a3_fast.onnx
-  clip: ../../data/motions/001_walk_front_slow.npz
+  clip_stand: ../../data/motions/BMD_0319_stand.npz
+  clip_walk: ../../data/motions/001_walk_front_slow.npz
 clip:
+  clips: [stand, walk]
+  # Default selection on entry: stand is the safe first contact on hardware.
+  select: stand
   ramp_s: 1.0
   # The 035 a3_fast actor was trained with a3_fast_dt_future_ref_frames=0.02:
   # its 10 future reference frames are spaced 20 ms (1 policy tick) apart.
   future_frame_skip: 1
-  on_finish: hold
 policy:
   runtime:
     intra_op_threads: 1

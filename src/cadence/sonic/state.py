@@ -1,27 +1,43 @@
 """SONIC whole-body motion-tracking control state (clip and stream modes).
 
-One class serves two registry entries: ``sonic_clip`` plays a converted
-motion clip through the released SONIC 035 a3_fast whole-body policy, and
+One class serves two registry entries: ``sonic_clip`` plays converted motion
+clips through the released SONIC 035 a3_fast whole-body policy, and
 ``sonic_stream`` tracks a live ``cadence.motion-ref.v1`` UDP stream. The state
 owns its receiver lifecycle; deployment.py is unchanged.
 
 Phases (``substate`` in status):
-  clip:   RAMP -> PLAYING -> DONE (hold) or a next_state handoff
+  clip:   RAMP -> READY -> CUE -> PLAYING -> RETURN -> READY
+
+  Entering blends onto the stand pose (RAMP) and waits in READY. READY reads
+  the D-pad from the PLNJ operator packet (edges only, held keys do not
+  re-trigger): up/down cycles ``clip.clips``, right/left starts playback.
+  READY never holds a clip's first frame: an arbitrary clip start can be a
+  dynamically unbalanced pose, so the standby pose is always the SONIC default
+  stand. A trigger enters CUE, which blends from stand onto the clip's first
+  frame over ``clip.ramp_s`` and hands straight to the policy (PLAYING); the
+  robot only passes through the clip start, never parks on it. At the final
+  frame, RETURN blends back to stand: a right-triggered play then waits in
+  READY for another clip, a left-triggered play also offers a loco handoff on
+  the finishing command (falling back to RETURN -> READY when the registry
+  has no loco). D-pad input is ignored outside READY.
+
   stream: WAITING -> TRACKING -> LOST (blend to stand) -> WAITING
 
 Transaction discipline mirrors ``cadence.motion.states.LowerLocoState``:
 ``step`` computes one candidate command and mutates the observation history
-only after snapshotting it; ``on_command_applied`` commits the candidate and
-the clipped raw action; ``on_command_rejected`` restores the snapshot and
-retries the same time increment.
+only after snapshotting it; ``on_command_applied`` commits the candidate,
+including the D-pad value later edges are measured against;
+``on_command_rejected`` restores the snapshot and retries the same time
+increment.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from numbers import Integral, Real
 from pathlib import Path
+import re
 import time
 
 import numpy as np
@@ -40,8 +56,8 @@ from .reference import SonicClip
 from .stream import LatestMotionRef, MotionRefUdpReceiver
 
 _MODES = ("clip", "stream")
-_ON_FINISH = ("hold", "loco")
 _ENTRY_GAINS = ("policy", "pd_stand")
+_CLIP_NAME = re.compile(r"[A-Za-z0-9_-]+")
 
 
 def _vector(value, name, size):
@@ -75,10 +91,11 @@ class SonicConfig:
     position_max: np.ndarray
     entry_smoothing_s: float
     runtime: Mapping
-    clip_path: Path | None = None
+    clip_names: tuple = ()
+    clip_paths: tuple = ()
+    select: int = 0
     ramp_s: float = 1.0
     clip_future_frame_skip: int = 1
-    on_finish: str = "hold"
     entry_gains: str = "policy"
     stream_host: str = "127.0.0.1"
     stream_port: int = 15120
@@ -101,8 +118,29 @@ class SonicConfig:
         mode = raw.get("mode")
         if mode not in _MODES:
             raise ValueError(f"mode must be one of {_MODES}")
+        clip = raw.get("clip", {})
+        if not isinstance(clip, Mapping) or set(clip) - {"clips", "select", "ramp_s", "future_frame_skip"}:
+            raise ValueError("clip may contain only clips, select, ramp_s and future_frame_skip")
+        if mode == "clip":
+            names = clip.get("clips")
+            if (not isinstance(names, (list, tuple)) or not names
+                    or any(not isinstance(name, str) or not _CLIP_NAME.fullmatch(name.strip())
+                           for name in names)):
+                raise ValueError("clip.clips must be a nonempty list of names ([A-Za-z0-9_-]+)")
+            clip_names = tuple(name.strip() for name in names)
+            if len(set(clip_names)) != len(clip_names):
+                raise ValueError("clip.clips names must be unique")
+            selected = clip.get("select", clip_names[0])
+            if selected not in clip_names:
+                raise ValueError("clip.select must name one of clip.clips")
+            select = clip_names.index(selected)
+            expected = {"model", *(f"clip_{name}" for name in clip_names)}
+        else:
+            if clip:
+                raise ValueError("stream mode does not take a clip section")
+            clip_names, select = (), 0
+            expected = {"model"}
         resources = raw.get("resources")
-        expected = {"model", "clip"} if mode == "clip" else {"model"}
         if not isinstance(resources, Mapping) or set(resources) != expected:
             raise ValueError(f"resources must contain exactly {sorted(expected)}")
         resolved = {}
@@ -134,18 +172,12 @@ class SonicConfig:
         runtime = policy.get("runtime")
         if runtime is not None and not isinstance(runtime, Mapping):
             raise ValueError("policy.runtime must be a mapping")
-        clip = raw.get("clip", {})
-        if not isinstance(clip, Mapping) or set(clip) - {"ramp_s", "future_frame_skip", "on_finish"}:
-            raise ValueError("clip may contain only ramp_s, future_frame_skip and on_finish")
         stream = raw.get("stream", {})
         if not isinstance(stream, Mapping) or set(stream) - {
             "host", "port", "delay_ms", "frame_ms", "stale_ms", "blend_s",
             "future_frame_skip", "max_frames",
         }:
             raise ValueError("stream contains unknown fields")
-        on_finish = clip.get("on_finish", "hold")
-        if on_finish not in _ON_FINISH:
-            raise ValueError(f"clip.on_finish must be one of {_ON_FINISH}")
         entry_gains = raw.get("entry_gains", "policy")
         if entry_gains not in _ENTRY_GAINS:
             raise ValueError(f"entry_gains must be one of {_ENTRY_GAINS}")
@@ -159,11 +191,12 @@ class SonicConfig:
             entry_smoothing_s=_number(raw.get("entry_smoothing_s", 0.1),
                                       "entry_smoothing_s", minimum=0.0, maximum=10.0),
             runtime=dict(runtime or {}),
-            clip_path=resolved.get("clip"),
+            clip_names=clip_names,
+            clip_paths=tuple(resolved[f"clip_{name}"] for name in clip_names),
+            select=select,
             ramp_s=_number(clip.get("ramp_s", 1.0), "clip.ramp_s", minimum=0.0, maximum=60.0),
             clip_future_frame_skip=_number(clip.get("future_frame_skip", 1),
                                            "clip.future_frame_skip", minimum=1, maximum=50, integer=True),
-            on_finish=on_finish,
             entry_gains=entry_gains,
             stream_host=host.strip(),
             stream_port=_number(stream.get("port", 15120), "stream.port", minimum=1, maximum=65535, integer=True),
@@ -205,10 +238,13 @@ class _Candidate:
     blend_from: np.ndarray | None = None
     reset_observation: bool = False
     gains: tuple | None = None
+    selection: int = 0
+    return_mode: str = "ready"
+    dpad_seen: tuple | None = None
 
 
 class SonicTrackState(ControlState):
-    """Track a SONIC reference (clip resource or UDP stream) with the 035 actor."""
+    """Track a SONIC reference (clip resources or UDP stream) with the 035 actor."""
 
     active_policy = True
     uses_loco_velocity = False
@@ -231,9 +267,10 @@ class SonicTrackState(ControlState):
         self.policy_config = {"model": str(config.model)}
         self.kp = config.kp
         self.kd = config.kd
-        # Non-policy PD phases (clip RAMP; stream WAITING/LOST) can run the
-        # released PD_STAND bring-up gains instead of the soft 024 policy
-        # gains, matching SONIC production bring-up (a3_policy_parameters.hpp).
+        # Non-policy PD phases (clip RAMP/READY/RETURN; stream WAITING/LOST) can
+        # run the released PD_STAND bring-up gains instead of the soft 024
+        # policy gains, matching SONIC production bring-up
+        # (a3_policy_parameters.hpp). Policy phases always use control.kp/kd.
         if config.entry_gains == "pd_stand":
             self._entry_kp = np.asarray(KP_PD_STAND_CADENCE, dtype=np.float64)
             self._entry_kd = np.asarray(KD_PD_STAND_CADENCE, dtype=np.float64)
@@ -243,7 +280,7 @@ class SonicTrackState(ControlState):
         self.zeros = np.zeros(JOINT_DIM)
         self.default_cadence = np.asarray(DEFAULT_ANGLES_CADENCE, dtype=np.float64)
         self._scale_cadence = isaaclab_to_cadence(self.policy.action_scale_isaaclab)
-        self.clip = SonicClip.load(config.clip_path) if config.mode == "clip" else None
+        self._clips = tuple(SonicClip.load(path) for path in config.clip_paths)
         self.motion_ref = None
         self.receiver = None
         if config.mode == "stream":
@@ -264,9 +301,20 @@ class SonicTrackState(ControlState):
         self.yaw_offset = 0.0
         self.tracking_started = False
         self.blend_from = None
-        self._ramp_from = None
+        self._selection = config.select
+        self._return_mode = "ready"
+        self._dpad_committed = (0, 0)
         self._last_diagnostics = self._diagnostics(
             np.empty(0), np.zeros(JOINT_DIM), np.zeros(JOINT_DIM))
+
+    @property
+    def clip(self):
+        """The currently selected clip (clip mode only)."""
+        return self._clips[self._selection]
+
+    @property
+    def selection_name(self):
+        return self.config.clip_names[self._selection]
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -281,19 +329,21 @@ class SonicTrackState(ControlState):
         self.play_tick = 0
         self.elapsed_s = 0.0
         self.tracking_started = False
-        self.blend_from = None
-        quat = np.asarray(frame.robot_state.quaternion_wxyz, dtype=np.float64)
+        self.yaw_offset = 0.0
         measured = np.asarray(frame.robot_state.joint_pos, dtype=np.float64)
         if measured.shape != (JOINT_DIM,) or not np.all(np.isfinite(measured)):
             raise ValueError("measured entry posture must contain 29 finite values")
         self._last_q_des = measured.copy()
         if self.config.mode == "clip":
-            self.yaw_offset = self.clip.lock_yaw(quat)
-            self._ramp_from = measured.copy()
+            self._selection = self.config.select
+            self._return_mode = "ready"
+            # Seed the committed D-pad so a key held across the entry does not
+            # produce an edge on the first READY tick.
+            self._dpad_committed = self._dpad(frame) or (0, 0)
+            self.blend_from = measured.copy()
             self.phase = "RAMP"
         else:
-            self.yaw_offset = 0.0
-            self._ramp_from = None
+            self.blend_from = None
             self.motion_ref.activate()
             self.receiver.start()
             self.phase = "WAITING"
@@ -310,63 +360,107 @@ class SonicTrackState(ControlState):
         self._active = False
         self.phase = "INACTIVE"
 
+    # -- operator input ------------------------------------------------------
+
+    @staticmethod
+    def _dpad(frame):
+        packet = frame.operator_input
+        if packet is None:
+            return None
+        xy = (getattr(packet, "dpad_x", None), getattr(packet, "dpad_y", None))
+        for value in xy:
+            if isinstance(value, bool) or not isinstance(value, Integral) or value not in (-1, 0, 1):
+                raise ValueError("operator dpad values must be -1, 0 or 1")
+        return (int(xy[0]), int(xy[1]))
+
     # -- phase computers -----------------------------------------------------
 
-    def _pd(self, q_des, phase, delta_s, **fields):
-        target = np.clip(np.asarray(q_des, dtype=np.float64),
-                         self.config.position_min, self.config.position_max)
+    def _fill(self, fields):
         fields.setdefault("play_tick", self.play_tick)
         fields.setdefault("elapsed_s", self.elapsed_s)
         fields.setdefault("yaw_offset", self.yaw_offset)
         fields.setdefault("tracking_started", self.tracking_started)
         fields.setdefault("blend_from", self.blend_from)
+        fields.setdefault("selection", self._selection)
+        fields.setdefault("return_mode", self._return_mode)
+
+    def _pd(self, q_des, phase, delta_s, **fields):
+        target = np.clip(np.asarray(q_des, dtype=np.float64),
+                         self.config.position_min, self.config.position_max)
+        self._fill(fields)
         fields.setdefault("gains", (self._entry_kp, self._entry_kd))
         return _Candidate(phase, target, delta_s, **fields), None
 
     def _policy_step(self, frame, prefix, phase, delta_s, **fields):
         q_des, requested, raw_clipped, observation = self.policy.infer(
             frame.robot_state, self._last_raw_isaaclab, prefix)
-        fields.setdefault("play_tick", self.play_tick)
-        fields.setdefault("elapsed_s", self.elapsed_s)
-        fields.setdefault("yaw_offset", self.yaw_offset)
-        fields.setdefault("tracking_started", self.tracking_started)
-        fields.setdefault("blend_from", self.blend_from)
+        self._fill(fields)
         candidate = _Candidate(phase, q_des, delta_s, raw_action_isaaclab=raw_clipped, **fields)
         return candidate, (observation, requested)
 
-    def _clip_step(self, frame, delta_s):
+    def _clip_step(self, frame, delta_s, dpad):
         pelvis = np.asarray(frame.robot_state.quaternion_wxyz, dtype=np.float64)
-        if self.phase == "RAMP":
-            elapsed = self.elapsed_s + delta_s
-            alpha = _smoothstep(1.0 if self.config.ramp_s <= 0 else elapsed / self.config.ramp_s)
+        edge_x = edge_y = 0
+        if dpad is not None:
+            if self._dpad_committed[0] == 0:
+                edge_x = dpad[0]
+            if self._dpad_committed[1] == 0:
+                edge_y = dpad[1]
+        if self.phase in ("RAMP", "RETURN"):
+            return self._blend(delta_s, self.default_cadence, dpad, "READY",
+                               events=("sonic_clip_ready",))
+        if self.phase == "READY":
+            if edge_y:
+                selection = (self._selection + edge_y) % len(self._clips)
+                # The standby pose does not depend on the clip; selection is a
+                # pure bookkeeping commit, no re-blend.
+                return self._pd(self.default_cadence, "READY", delta_s, elapsed_s=0.0,
+                                play_tick=0, selection=selection,
+                                events=(f"sonic_clip_selected:{self.config.clip_names[selection]}",),
+                                dpad_seen=dpad)
+            if edge_x:
+                # D-pad right/left starts playback: CUE blends from stand onto
+                # the clip's first frame, then the policy takes over. The
+                # reference heading locks to the current pelvis yaw. Right
+                # returns to READY after the clip; left hands off to loco.
+                yaw = self.clip.lock_yaw(pelvis)
+                return self._pd(self.default_cadence, "CUE", delta_s, elapsed_s=0.0,
+                                play_tick=0, yaw_offset=yaw,
+                                blend_from=self._last_q_des.copy(),
+                                return_mode=("loco" if edge_x < 0 else "ready"),
+                                events=(f"sonic_clip_cue:{self.selection_name}",),
+                                dpad_seen=dpad)
+            return self._pd(self.default_cadence, "READY", delta_s, elapsed_s=0.0,
+                            play_tick=0, dpad_seen=dpad)
+        if self.phase == "CUE":
             first = isaaclab_to_cadence(self.clip.q_ref[0])
-            q_des = (1.0 - alpha) * self._ramp_from + alpha * first
-            if alpha >= 1.0:
-                # The ramp's final command lands on the first reference frame;
-                # the policy takes over next tick with a fresh history.
-                return self._pd(q_des, "PLAYING", delta_s, elapsed_s=elapsed,
-                                play_tick=0, events=("sonic_clip_started",),
-                                reset_observation=True)
-            return self._pd(q_des, "RAMP", delta_s, elapsed_s=elapsed)
+            candidate, _ = self._blend(delta_s, first, dpad, "PLAYING",
+                                       events=("sonic_clip_started",))
+            return replace(candidate, reset_observation=True), None
         if self.phase == "PLAYING":
             finishing = self.play_tick >= self.clip.frames - 1
             prefix = self.clip.tokenizer_slice(
                 self.play_tick, pelvis, self.yaw_offset, self.config.clip_future_frame_skip)
             if not finishing:
                 return self._policy_step(frame, prefix, "PLAYING", delta_s,
-                                         play_tick=self.play_tick + 1)
-            # The final reference frame commits DONE even when a next_state
-            # handoff is offered, so the finish event fires exactly once.
-            next_state = "loco" if self.config.on_finish == "loco" else None
-            return self._policy_step(frame, prefix, "DONE", delta_s,
-                                     events=("sonic_clip_finished",),
-                                     next_state=next_state)
-        if self.phase == "DONE":
-            prefix = self.clip.tokenizer_slice(
-                self.clip.frames - 1, pelvis, self.yaw_offset,
-                self.config.clip_future_frame_skip)
-            return self._policy_step(frame, prefix, "DONE", delta_s)
+                                         play_tick=self.play_tick + 1, dpad_seen=dpad)
+            next_state = "loco" if self._return_mode == "loco" else None
+            candidate, inference = self._policy_step(
+                frame, prefix, "RETURN", delta_s, events=("sonic_clip_finished",),
+                next_state=next_state, dpad_seen=dpad)
+            # The finishing command doubles as the RETURN blend source.
+            return replace(candidate, blend_from=candidate.q_des.copy()), inference
         raise RuntimeError(f"invalid sonic clip phase {self.phase}")
+
+    def _blend(self, delta_s, target, dpad, next_phase, events=()):
+        """RAMP/CUE/RETURN: blend from ``blend_from`` to ``target`` over ramp_s."""
+        elapsed = self.elapsed_s + delta_s
+        alpha = _smoothstep(1.0 if self.config.ramp_s <= 0 else elapsed / self.config.ramp_s)
+        q_des = (1.0 - alpha) * self.blend_from + alpha * target
+        if alpha >= 1.0:
+            return self._pd(target, next_phase, delta_s, elapsed_s=elapsed, play_tick=0,
+                            blend_from=None, events=events, dpad_seen=dpad)
+        return self._pd(q_des, self.phase, delta_s, elapsed_s=elapsed, dpad_seen=dpad)
 
     def _stream_step(self, frame, delta_s):
         config = self.config
@@ -420,10 +514,11 @@ class SonicTrackState(ControlState):
             raise ValueError("sonic step time must be finite and nondecreasing")
         delta = now - self._last_step_s if self._retry_delta_s is None else self._retry_delta_s
         self._last_step_s = now
+        dpad = self._dpad(frame) if self.config.mode == "clip" else None
         self._adapter_snapshot = self.policy.snapshot()
         try:
             if self.config.mode == "clip":
-                candidate, inference = self._clip_step(frame, delta)
+                candidate, inference = self._clip_step(frame, delta, dpad)
             else:
                 candidate, inference = self._stream_step(frame, delta)
             if inference is None:
@@ -470,6 +565,10 @@ class SonicTrackState(ControlState):
         self.yaw_offset = candidate.yaw_offset
         self.tracking_started = candidate.tracking_started
         self.blend_from = None if candidate.blend_from is None else candidate.blend_from.copy()
+        self._selection = candidate.selection
+        self._return_mode = candidate.return_mode
+        if candidate.dpad_seen is not None:
+            self._dpad_committed = candidate.dpad_seen
         if candidate.raw_action_isaaclab is not None:
             self._last_raw_isaaclab = candidate.raw_action_isaaclab.copy()
         self._last_q_des = actual.copy()
