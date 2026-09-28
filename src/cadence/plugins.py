@@ -60,6 +60,9 @@ class ControlState:
     root_loss_exit_steps = None
     root_loss_fallback_state = None
     entry_smoothing_s = 0.0
+    # Human-readable motion identity for operator status and console output.
+    # Plugins expose committed selection only; None means no selected motion.
+    selected_motion = None
 
     def __init__(self, state_id, key, config, services):
         self.state_id = state_id

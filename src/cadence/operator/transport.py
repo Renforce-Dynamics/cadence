@@ -95,6 +95,9 @@ class JoystickCommandReceiver:
         safety_reason = field("safety_reason")
         if safety_reason is not None and not isinstance(safety_reason, str):
             raise ValueError("operator safety_reason must be a string or None")
+        selected_motion = field("selected_motion")
+        if selected_motion is not None and (not isinstance(selected_motion, str) or not selected_motion.strip()):
+            raise ValueError("operator selected_motion must be a nonempty string or None")
         self._status = {"schema": OPERATOR_SCHEMA, "type": "status", "mode": mode,
                         "safety_halted": halted, "events": list(events)}
         if safety_reason:
@@ -105,6 +108,8 @@ class JoystickCommandReceiver:
             self._status["substate"] = substate
         if entry_gate_ready is not None:
             self._status["entry_gate_ready"] = entry_gate_ready
+        if selected_motion is not None:
+            self._status["selected_motion"] = selected_motion
 
     def _answer_query(self, raw, peer):
         schema = OPERATOR_SCHEMA

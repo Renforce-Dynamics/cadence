@@ -177,6 +177,7 @@
                           <joint name="left_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.62316 1.62316" actuatorfrcrange="-6 6" actuatorfrclimited="true" damping="1.0" frictionloss="0.1" armature="0.00081008933" />
                           <geom class="visual" type="mesh" rgba="1 1 1 1" mesh="left_wrist_yaw_Link" />
                           <geom class="visual" type="mesh" rgba="1 1 1 1" mesh="left_hand_Link" />
+                          <geom name="left_hand_collision" class="collision" type="mesh" mesh="left_hand_Link" density="0" />
                           <geom class="collision" type="mesh" mesh="left_wrist_yaw_Link_convex_00" />
                         </body>
                         <geom class="collision" type="mesh" mesh="left_wrist_pitch_Link_convex_00" />
@@ -221,6 +222,7 @@
                           <joint name="right_wrist_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.62316 1.62316" actuatorfrcrange="-6 6" actuatorfrclimited="true" damping="1.0" frictionloss="0.1" armature="0.00081008933" />
                           <geom class="visual" type="mesh" rgba="1 1 1 1" mesh="right_wrist_yaw_Link" />
                           <geom class="visual" type="mesh" rgba="1 1 1 1" mesh="right_hand_Link" />
+                          <geom name="right_hand_collision" class="collision" type="mesh" mesh="right_hand_Link" density="0" />
                           <geom class="collision" type="mesh" mesh="right_wrist_yaw_Link_convex_00" />
                         </body>
                         <geom class="collision" type="mesh" mesh="right_wrist_pitch_Link_convex_00" />

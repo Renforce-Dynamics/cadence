@@ -130,6 +130,24 @@ def test_unknown_entry_gate_is_omitted(receiver):
     assert "entry_gate_ready" not in query(receiver)
 
 
+def test_selected_motion_is_snapshotted_and_cleared_when_leaving_motion_state(receiver):
+    accepted = SimpleNamespace(mode="SONIC_CLIP", safety_halted=False, events=(), skill_state="READY")
+    _publish_status(receiver, accepted, shadow=False, selected_motion="dribble")
+    assert query(receiver)["selected_motion"] == "dribble"
+    accepted.mode = "LOCO"
+    _publish_status(receiver, accepted, shadow=False)
+    assert "selected_motion" not in query(receiver)
+
+
+@pytest.mark.parametrize("value", ["", "  ", False, [], 1])
+def test_invalid_motion_name_cannot_replace_the_last_published_snapshot(receiver, value):
+    snapshot = {"mode": "SONIC_CLIP", "safety_halted": False, "selected_motion": "stand"}
+    receiver.update_status(snapshot)
+    with pytest.raises(ValueError, match="selected_motion"):
+        receiver.update_status({**snapshot, "selected_motion": value})
+    assert query(receiver)["selected_motion"] == "stand"
+
+
 def test_safety_reason_is_published_when_present(receiver):
     receiver.update_status({"mode": "FIXEDPOS", "safety_halted": True, "events": (),
                             "safety_reason": "control deadline missed 5 times"})

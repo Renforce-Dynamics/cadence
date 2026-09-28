@@ -118,11 +118,15 @@ def hardware_config(tmp_path, *, read_only=False):
 
 
 @pytest.mark.parametrize("read_only", [False, True])
-def test_hardware_and_readonly_deployments_report_actual_write_boundary(tmp_path, monkeypatch, read_only):
+def test_hardware_and_readonly_deployments_report_actual_write_boundary(tmp_path, monkeypatch, capsys, read_only):
     backend = HardwareFixture(read_only=read_only)
     monkeypatch.setattr(A3Backend, "from_mapping", lambda *a, **kw: backend)
     output = tmp_path / "result"
     assert run_config(hardware_config(tmp_path, read_only=read_only), output=output) == 0
+    captured = capsys.readouterr()
+    assert "[cadence:a3]" in captured.err and "[START]" in captured.err and "[STATUS]" in captured.err
+    assert f"execution={'shadow' if read_only else 'backend'}" in captured.err
+    assert json.loads(captured.out)["read_only"] == read_only
     result = json.loads((output / "result.json").read_text())
     state = ProgressState.instances[-1]
     assert state.exited and backend.closed

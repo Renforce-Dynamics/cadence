@@ -185,6 +185,11 @@ The operator UDP port also answers `planet.operator.v1` JSON `describe` and
 `status` queries. `describe` reports registered states and safety destinations.
 `status` reports the latest published runtime mode, safety latch and cycle events,
 plus the halt reason as `safety_reason` when the safety supervisor has latched.
+Motion states may additionally expose `selected_motion`, a nonempty string
+identifying the committed trajectory. SONIC clips report their selected name;
+stream mode reports `live_motion_ref`. States without a selection omit the
+field, so leaving a motion state clears the previous selection. State plugins
+must expose accepted selections, not a pending change awaiting backend commit.
 Queries only read snapshots. Sending a request does not guarantee a transition;
 state gates and safety still apply. Status is a snapshot, not a durable event log
 or a per-request execution receipt.
@@ -194,6 +199,22 @@ New clients use `planet.operator.v1`, `planet.joint-target.v1` and
 names. Operator and target replies echo the request's recognized schema;
 localization is one-way. Legacy `cadence_protocol` clients preserve their old
 schema defaults, while `planet_protocol` clients default to the Planet names.
+
+### Runtime console
+
+The common deployment runner prints command edges, link changes, transitions,
+rejections, safety events and physical simulation resets on hardware and MuJoCo.
+It prints status immediately when mode, phase, trajectory or safety changes,
+and otherwise once per second. Held command packets and consecutive identical
+events are deduplicated. `COMMAND` means received; `EVENT` and `STATUS` report
+the runtime result after the backend accepts the cycle. Read-only hardware
+runs label simulated execution as `shadow`.
+
+Console output goes to stderr; the final JSON summary stays on stdout. A daemon
+writer with a bounded 256-message queue keeps terminal writes off the control
+thread. A full queue drops logs and reports the count when output recovers.
+Backend shutdown runs before the bounded writer drain. This logging does not
+change transition gates, safety decisions or command timing.
 
 ## Configuration inheritance and state lifecycle
 

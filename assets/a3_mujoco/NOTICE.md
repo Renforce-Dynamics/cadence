@@ -24,6 +24,11 @@ Adaptations in `a3.xml` relative to
 - `<visual><global>` gains `offwidth/offheight="1920x1080"` so offscreen
   rendering at up to 1080p works (`scripts/render_sonic_sim.py`).
 - Passive compliant-foot joints are kept unactuated with their fitted springs.
+- Both original hand meshes also provide convex-hull collision geoms. The
+  previous wrist-only collision coverage let the visible palms/fingers pass
+  through each other. These geoms have zero density and preserve the authored
+  body inertia. Their convex hulls are conservative around finger gaps; this
+  models the original hands, not the BH11 flat hands used by iKobe Mimic.
 - Head yaw/pitch use agi3dep's physical stops (yaw ±60°, pitch −25°/+15°),
   damping 1.0, friction loss 0.1, and armature 0.0008100893338. They remain
   passive, outside the 29-joint policy contract, matching agi3dep's Python

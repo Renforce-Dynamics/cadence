@@ -317,6 +317,10 @@ class SonicTrackState(ControlState):
     def selection_name(self):
         return self.config.clip_names[self._selection]
 
+    @property
+    def selected_motion(self):
+        return self.selection_name if self.config.mode == "clip" else "live_motion_ref"
+
     # -- lifecycle ---------------------------------------------------------
 
     def on_enter(self, frame, events):

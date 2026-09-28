@@ -33,6 +33,12 @@ uv pip install --python .venv/bin/python "mujoco>=3,<4"
   a MuJoCo joint; the old asset incorrectly allowed the head to flip.
 - Joint armature values from `gear_sonic/.../a3.py` are applied to every
   policy joint; start height 1.069 m (sole contact at the default pose).
+- Both original hand meshes also have zero-density collision geoms. Previously
+  only the wrists had collision coverage, allowing the visible palms to pass
+  through one another. MuJoCo uses conservative mesh convex hulls; these are not
+  iKobe's BH11 flat hands. Adding contact geometry does not teach a policy to
+  avoid self-contact; task-specific checks must assess hand clearance as well
+  as balance.
 
 ## Configuration
 

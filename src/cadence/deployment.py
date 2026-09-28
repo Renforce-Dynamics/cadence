@@ -259,13 +259,14 @@ def _backend_localization(backend, state):
     return LocalizationState(state.root_position_w, state.quaternion_wxyz, state.root_linear_velocity_w)
 
 
-def _publish_status(receiver, output, *, shadow, entry_gate_ready=None):
+def _publish_status(receiver, output, *, shadow, entry_gate_ready=None, selected_motion=None):
     receiver.update_status({
         "mode": output.mode, "safety_halted": output.safety_halted,
         "events": output.events, "execution": "shadow" if shadow else "backend",
         "substate": getattr(output, "skill_state", None),
         "entry_gate_ready": entry_gate_ready,
         "safety_reason": getattr(output, "safety_reason", None),
+        "selected_motion": selected_motion,
     })
 
 
@@ -274,6 +275,7 @@ def run_config(path, *, output=None, check=False):
     from .plugins import ControlFrame
     from .runtime import RuntimeKernel, RuntimeConfig, RuntimeInput
     from .runtime.loop import execute_cycle, read_control_state
+    from .runtime.console import ConsoleWriter, RuntimeConsole
 
     resolved = load_run_config(path)
     plan = prepare_deployment(resolved)
@@ -312,6 +314,9 @@ def run_config(path, *, output=None, check=False):
 
     started = time.monotonic()
     with ExitStack() as cleanup:
+        console_writer = ConsoleWriter()
+        cleanup.callback(console_writer.close)
+        console = RuntimeConsole(plan.catalog, cfg["backend"]["kind"], shadow, console_writer.emit)
         cleanup.callback(backend.close)
         if threading.current_thread() is threading.main_thread():
             for sig in (signal.SIGINT, signal.SIGTERM):
@@ -349,7 +354,9 @@ def run_config(path, *, output=None, check=False):
                 operator = JoystickCommandReceiver(plan.operator.host, plan.operator.port)
                 cleanup.callback(operator.close)
                 operator.set_catalog(plan.catalog)
-                _publish_status(operator, SimpleNamespace(mode=kernel.current.key, safety_halted=False, events=()), shadow=shadow, entry_gate_ready=False)
+                _publish_status(operator, SimpleNamespace(mode=kernel.current.key, safety_halted=False, events=()),
+                                shadow=shadow, entry_gate_ready=False,
+                                selected_motion=getattr(kernel.current, "selected_motion", None))
                 input_adapter = OperatorInputAdapter(plan.operator.mapping, plan.operator.signal_mode)
                 velocity_limiter = VelocitySlewRateLimiter(plan.operator.linear_slew_rate_mps2, plan.operator.yaw_slew_rate_radps2, plan.operator.velocity_deadzone)
             if plan.upper is not None:
@@ -360,6 +367,7 @@ def run_config(path, *, output=None, check=False):
                 receiver = JointTargetUdpReceiver(targets, bind=(plan.upper["host"], plan.upper["port"]))
                 cleanup.callback(receiver.stop)
                 receiver.start()
+            console.start(kernel.current, operator_address=None if operator is None else operator.address)
             # Model loading and the first state wait are outside deployment duration.
             started = next_tick = last_fresh_state = time.monotonic()
             observed_watchdog = getattr(backend, "watchdog_trip_count", 0)
@@ -376,7 +384,7 @@ def run_config(path, *, output=None, check=False):
                     kernel.reset_from_feedback(state, ticks * dt, localization=reset_root)
                     if operator is not None:
                         velocity_limiter.reset(time.monotonic())
-                    print(f"simulation reset: initial pose restored; mode={kernel.current_key}", flush=True)
+                    console.message(ticks * dt, "RESET", f"initial pose restored; mode={kernel.current_key}")
                 try:
                     if hardware:
                         state = read_control_state(backend, next_tick, backend.state_timeout_s)
@@ -389,6 +397,7 @@ def run_config(path, *, output=None, check=False):
                     if time.monotonic() - last_fresh_state >= backend.command_timeout_ms / 1000:
                         failure = "synchronized state missing beyond command watchdog"
                         kernel.safety.halt(failure)
+                        console.message(state_now, "HALT", failure)
                         break
                     continue
                 if stop.is_set():
@@ -398,12 +407,14 @@ def run_config(path, *, output=None, check=False):
                 if hardware and backend.watchdog_trip_count > observed_watchdog:
                     failure = "SDK watchdog entered safe damping"
                     kernel.safety.halt(failure)
+                    console.message(state_now, "HALT", failure)
                     break
                 next_tick = max(next_tick + dt, now)
                 state_now = now - started if hardware else ticks * dt
                 inputs = {"velocity_command": plan.velocity}
                 if operator is not None:
                     sample = input_adapter.map(operator.poll(), now)
+                    console.observe_input(sample, state_now)
                     inputs = {field: getattr(sample, field) for field in sample.__dataclass_fields__}
                     if not kernel.current.uses_loco_velocity or kernel.safety.halted:
                         velocity_limiter.reset(now)
@@ -420,12 +431,18 @@ def run_config(path, *, output=None, check=False):
                 except Exception as error:
                     if hardware and backend.is_state_stale_error(error):
                         stale_skips += 1
+                        # Bound repeated warnings to a one-second cadence.
+                        if stale_skips == 1 or ticks % max(1, round(plan.control_hz)) == 0:
+                            console.message(state_now, "WARN", f"command rejected as stale; skips={stale_skips}: {error}")
                         ticks += 1
                         continue
                     raise
                 writes += cycle.submitted
                 shadow_steps += cycle.shadow
                 ticks += 1
+                console.observe_output(cycle.output, kernel.current, state_now,
+                                       entry_gate_ready=kernel.entry_gate_ready,
+                                       velocity=inputs["velocity_command"])
                 if viewer is not None:
                     sim_time_before_sync = float(backend.data.time)
                     viewer.sync()
@@ -435,7 +452,8 @@ def run_config(path, *, output=None, check=False):
                     if backend.data.time < sim_time_before_sync:
                         sim_reset.set()
                 if operator is not None:
-                    _publish_status(operator, cycle.output, shadow=shadow, entry_gate_ready=kernel.entry_gate_ready)
+                    _publish_status(operator, cycle.output, shadow=shadow, entry_gate_ready=kernel.entry_gate_ready,
+                                    selected_motion=getattr(kernel.current, "selected_motion", None))
                 if realtime and not hardware:
                     time.sleep(max(0, dt - (time.monotonic() - now)))
         except KeyboardInterrupt:

@@ -102,6 +102,7 @@ def test_sonic_clip_lifecycle(plan):
         assert events.count("sonic_clip_ready") == 1
         state = rig.kernel.plugin(6)
         assert state.selection_name == "stand"
+        assert state.selected_motion == "stand"
         default = np.asarray(DEFAULT_ANGLES_CADENCE)
         np.testing.assert_allclose(output.command.q_des, default, atol=1e-9)
 
@@ -146,6 +147,7 @@ def test_sonic_clip_lifecycle(plan):
         assert "sonic_clip_selected:walk" in output.events
         assert output.skill_state == "READY"
         assert state.selection_name == "walk"
+        assert state.selected_motion == "walk"
         output = rig.cycle(dpad=(0, -1))  # held: no edge, still walk
         assert not output.events
         output = rig.cycle()              # release
