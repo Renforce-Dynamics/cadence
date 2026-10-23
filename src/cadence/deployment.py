@@ -185,7 +185,7 @@ def prepare_deployment(resolved):
             raise ConfigError("upper target port must be an integer in [0, 65535]")
     raw = cfg["backend"]
     simulation_fields = {"model", "physics_timestep_s", "initial_joint_position", "gyro_sensor", "quaternion_sensor", "root_site"}
-    a3_fields = {"transport", "read_only", "command_publish_enabled", "state_timeout_ms", "command_timeout_ms", "startup_timeout_s", "safe_damping_kd", "neck_kp", "neck_kd", "library_path", "aimrt"}
+    a3_fields = {"transport", "read_only", "command_publish_enabled", "state_timeout_ms", "command_timeout_ms", "startup_timeout_s", "safe_damping_kd", "neck_kp", "neck_kd", "neck_mode", "neck_preset_q", "neck_preset_max_velocity", "library_path", "aimrt"}
     validate_keys(raw, {"kind"} | simulation_fields | a3_fields, required={"kind"}, label="backend")
     kind = raw["kind"]
     if kind == "mock":

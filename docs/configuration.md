@@ -106,6 +106,10 @@ YAML 继承只合并配置，状态工厂选择实现，运行时决定状态切
 
 `backend.aimrt.config_path` 指向根 `configs/aimrt/` 中的配置；现场共享库可由 `backend.library_path` 指定。
 两者按声明文件解析。topic、同步偏差、超时和 neck 保持增益都在后端配置中。
+颈部默认 `neck_mode: hold_measured`：每拍以当前测量值为目标，只有阻尼。
+`neck_mode: preset` 时，接管后从测量位置以不超过 `neck_preset_max_velocity`（默认 0.3 rad/s）的速度
+斜坡到 `neck_preset_q: [head_yaw, head_pitch]`（弧度，pitch 正值为低头），SDK 启动时检查关节限位
+（yaw ±1.0472，pitch [-0.4363, 0.2618]）。命令中断超过 `command_timeout_ms` 后重新从测量位置起坡。
 A3 的 29 维关节名称和顺序必须与 SDK 一致。
 
 [固定上肢状态配置](../configs/states/a3_lower.yaml) 包含完整 A3 下肢契约；

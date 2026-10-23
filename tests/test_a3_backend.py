@@ -161,6 +161,10 @@ def test_start_failure_closes_allocated_sdk(fake_sdk, monkeypatch):
     {"state_timeout_ms": True}, {"state_timeout_ms": 0}, {"state_timeout_ms": 1.5},
     {"command_timeout_ms": 2**32}, {"startup_timeout_s": float("nan")},
     {"neck_kp": -1}, {"safe_damping_kd": float("inf")},
+    {"neck_mode": "fixed"}, {"neck_preset_q": [0.0, 0.1]},
+    {"neck_mode": "preset"}, {"neck_mode": "preset", "neck_preset_q": [0.0]},
+    {"neck_mode": "preset", "neck_preset_q": [0.0, float("nan")]},
+    {"neck_mode": "preset", "neck_preset_q": [0.0, 0.1], "neck_preset_max_velocity": 0},
     {"command_publish_enabled": True}, {"aimrt": {}}, {"unknown": 1},
 ])
 def test_bad_configuration_fails_without_loading_sdk(overlay, fake_sdk):
@@ -235,3 +239,19 @@ def test_native_readonly_snapshot_without_command_sink(native_library):
         assert backend.read_state().sequence == 1
         with pytest.raises(RuntimeError, match="read-only"):
             backend.write_command(command(), 1)
+
+
+def test_neck_preset_reaches_sdk_options(fake_sdk):
+    backend = a3.A3Backend({"transport": "sdk_mock"})
+    backend.start()
+    assert "neck_mode" not in fake_sdk[0][0].options
+    backend.close()
+    backend = a3.A3Backend({
+        "transport": "sdk_mock", "neck_mode": "preset", "neck_preset_q": [0, 0.17],
+    })
+    backend.start()
+    options = fake_sdk[0][1].options
+    assert options["neck_mode"] == "preset"
+    assert options["neck_preset_q"] == (0.0, 0.17)
+    assert options["neck_preset_max_velocity"] == 0.3
+    backend.close()

@@ -33,6 +33,7 @@ A3_POLICY_JOINTS = (
 )
 CONTROL_JOINT_NAMES = A3_POLICY_JOINTS
 STATE_TOPICS = ("waist", "neck", "arms", "legs", "pelvis_imu", "torso_imu")
+NECK_MODES = ("hold_measured", "preset")
 COMMAND_TOPICS = ("waist", "neck", "arms", "legs")
 
 
@@ -75,6 +76,30 @@ def _topics(raw, names, label):
     return dict(raw)
 
 
+def _neck_options(raw):
+    """``hold_measured`` (default) damps the neck where it is; ``preset`` ramps
+    it from the measured position to ``neck_preset_q`` = [head_yaw, head_pitch]
+    rad (pitch > 0 looks down). The SDK checks the joint limits at start."""
+    mode = raw.get("neck_mode", "hold_measured")
+    if mode not in NECK_MODES:
+        raise ValueError(f"neck_mode must be one of {list(NECK_MODES)}")
+    if mode == "hold_measured":
+        if "neck_preset_q" in raw or "neck_preset_max_velocity" in raw:
+            raise ValueError("neck_preset_* requires neck_mode: preset")
+        return {}
+    q = raw.get("neck_preset_q")
+    if (
+        isinstance(q, (str, bytes)) or not hasattr(q, "__len__") or len(q) != 2
+        or any(isinstance(v, bool) or not isinstance(v, Real) or not math.isfinite(v) for v in q)
+    ):
+        raise ValueError("neck_preset_q must be two finite numbers [head_yaw, head_pitch]")
+    return {
+        "neck_mode": mode,
+        "neck_preset_q": tuple(float(v) for v in q),
+        "neck_preset_max_velocity": _number(raw.get("neck_preset_max_velocity", 0.3), "neck_preset_max_velocity", positive=True),
+    }
+
+
 def _load_sdk():
     try:
         import agi3sdk
@@ -98,7 +123,8 @@ class A3Backend:
         _keys(raw, {
             "kind", "transport", "read_only", "command_publish_enabled",
             "state_timeout_ms", "command_timeout_ms", "startup_timeout_s",
-            "safe_damping_kd", "neck_kp", "neck_kd", "library_path", "aimrt",
+            "safe_damping_kd", "neck_kp", "neck_kd", "neck_mode", "neck_preset_q",
+            "neck_preset_max_velocity", "library_path", "aimrt",
         }, {"transport"}, "backend")
         if raw.get("kind", "a3") != "a3":
             raise ValueError("A3Backend requires backend.kind: a3")
@@ -125,6 +151,7 @@ class A3Backend:
             "neck_kp": _number(raw.get("neck_kp", 40.0), "neck_kp"),
             "neck_kd": _number(raw.get("neck_kd", 2.0), "neck_kd"),
             "command_publish_enabled": self.command_publish_enabled,
+            **_neck_options(raw),
         }
         if raw.get("library_path") is not None:
             self._sdk_options["library_path"] = _path(raw["library_path"], base_dir, "library_path")
