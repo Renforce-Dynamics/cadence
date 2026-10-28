@@ -216,7 +216,8 @@ class A3Backend:
         state = io.read_state(timeout_s=timeout)
         # Translate into Cadence's owned, backend-neutral state without changing
         # SDK timestamps, sequence numbers, IMU fields, or optional world values.
-        return RobotState(**{field.name: getattr(state, field.name) for field in fields(RobotState)})
+        # Optional fields absent from an older SDK facade stay None.
+        return RobotState(**{field.name: getattr(state, field.name, None) for field in fields(RobotState)})
 
     def write_command(self, command, state_sequence):
         io = self._running()

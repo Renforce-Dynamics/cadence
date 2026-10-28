@@ -33,6 +33,8 @@ class RobotState:
     torso_gyro_b: np.ndarray | None = None
     torso_quaternion_wxyz: np.ndarray | None = None
     torso_acceleration_b: np.ndarray | None = None
+    # Pelvis IMU specific force (m/s^2, IMU frame); None when the backend has none.
+    pelvis_acceleration_b: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if np.asarray(self.joint_pos).size == 0:
@@ -75,7 +77,7 @@ class RobotState:
                 array = array / torso_norm
             object.__setattr__(self, name, array.copy())
         object.__setattr__(self, "has_torso_imu", bool(self.has_torso_imu))
-        for name in ("root_position_w", "root_linear_velocity_w"):
+        for name in ("root_position_w", "root_linear_velocity_w", "pelvis_acceleration_b"):
             value = getattr(self, name)
             if value is None:
                 continue

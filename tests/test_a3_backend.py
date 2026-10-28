@@ -19,6 +19,7 @@ def state(sequence=7):
         sync_skew_ns=250, has_torso_imu=True,
         torso_gyro_b=np.array([4.0, 5.0, 6.0]),
         root_position_w=np.array([1.0, 2.0, 3.0]),
+        pelvis_acceleration_b=np.array([0.1, 0.2, 9.7]),
     )
 
 
@@ -234,9 +235,22 @@ def test_native_mock_preserves_stale_snapshot_rejection(native_library):
         assert not backend.is_state_stale_error(TimeoutError())
 
 
+def test_older_sdk_state_without_pelvis_acceleration_converts(tmp_path, fake_sdk):
+    backend = a3.A3Backend(aimrt_config(tmp_path), base_dir=tmp_path)
+    backend.start()
+    io = fake_sdk[0][0]
+    values = {field.name: getattr(io.state, field.name) for field in fields(RobotState)}
+    del values["pelvis_acceleration_b"]
+    io.state = SimpleNamespace(**values)
+    assert backend.read_state().pelvis_acceleration_b is None
+    backend.close()
+
+
 def test_native_readonly_snapshot_without_command_sink(native_library):
     with a3.A3Backend({"transport": "sdk_mock", "library_path": native_library}) as backend:
-        assert backend.read_state().sequence == 1
+        sample = backend.read_state()
+        assert sample.sequence == 1
+        assert sample.pelvis_acceleration_b.tolist() == pytest.approx([0.0, 0.0, 9.81])
         with pytest.raises(RuntimeError, match="read-only"):
             backend.write_command(command(), 1)
 
